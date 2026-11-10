@@ -1,6 +1,5 @@
 import { Component, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Activity, ArrowUpRight, BookOpen, ChartNoAxesCombined, ChevronRight, Compass, FlaskConical, Layers3, Menu, Moon, Orbit, ShieldCheck, Sun, X } from 'lucide-react';
-import { useApi } from './api/client';
+import { Activity, BookOpen, ChartNoAxesCombined, ChevronRight, Compass, FlaskConical, Layers3, Menu, Moon, Orbit, Sun, X } from 'lucide-react';
 import { useTheme } from './theme';
 import Assistant from './components/Assistant';
 const routes = [
@@ -9,7 +8,6 @@ const routes = [
   { id: 'time-machine', label: 'Climate Time Machine', icon: Orbit, page: lazy(() => import('./pages/TimeMachine')) },
   { id: 'comparison', label: 'State Comparison', icon: ChartNoAxesCombined, page: lazy(() => import('./pages/Comparison')) },
   { id: 'insights', label: 'NIElytics Insights', icon: FlaskConical, page: lazy(() => import('./pages/Insights')) },
-  { id: 'multi-hazard', label: 'Multi-Hazard Explorer', icon: Activity, page: lazy(() => import('./pages/MultiHazard')) },
   { id: 'sources', label: 'Sources & Methodology', icon: BookOpen, page: lazy(() => import('./pages/Sources')) },
 ];
 class ErrorBoundary extends Component<{children: ReactNode}, {failed: boolean}> {
@@ -19,7 +17,6 @@ class ErrorBoundary extends Component<{children: ReactNode}, {failed: boolean}> 
 }
 export default function App() {
   const {theme, toggleTheme} = useTheme();
-  const health = useApi('/api/v1/health');
   const [hash, setHash] = useState(window.location.hash);
   const [open, setOpen] = useState(false);
   const menu = useRef<HTMLButtonElement>(null);
@@ -61,13 +58,10 @@ export default function App() {
       <a className="brand" href={link('overview')}><span className="brand-mark"><Compass size={27}/></span><span>ClimateLens<span className="brand-country">India</span></span></a>
       <button className="drawer-close button" aria-label="Close navigation" onClick={() => { setOpen(false); menu.current?.focus(); }}><X size={18}/></button>
       <nav aria-label="Primary">{routes.map(({id,label,icon: Icon}) => <a key={id} href={link(id)} className={`nav-link ${current.id === id ? 'active' : ''}`} aria-current={current.id === id ? 'page' : undefined}><Icon size={19}/><span>{label}</span>{current.id === id && <ChevronRight size={15}/>}</a>)}</nav>
-      <div className="sidebar-bottom"><div className="library-badge"><FlaskConical size={20}/><strong>Powered by NIElytics</strong></div><a href={link('sources')}>Sources and methods <ArrowUpRight size={14}/></a><div className="competition">NIErnaya 2026 · Round 2</div></div>
     </aside>
     <div className="workspace"><header className="topbar">
       <div className="breadcrumb"><button ref={menu} className="button mobile-menu" aria-label="Open navigation" aria-expanded={open} onClick={() => setOpen(true)}><Menu size={20}/></button><strong>{current.label}</strong></div>
       <div className="topbar-actions">
-        {health.error?<button className="status-pill" onClick={()=>void health.refetch()}>Backend offline · Retry</button>:<span className={`status-pill ${health.data?.data_ready?'connected':''}`}><span className="status-dot"/>{health.isPending?'Connecting to API…':health.data?.data_ready?'Historical API connected':'API reachable · data unavailable'}</span>}
-        {hash.includes('?') && <details className="filter-disclosure"><summary>Active filters</summary><div className="filter-popover"><dl>{[...new URLSearchParams(hash.split('?')[1])].map(([key,value])=><div key={key}><dt>{key.replaceAll('_',' ')}</dt><dd>{value}</dd></div>)}</dl><button className="button" onClick={()=>{window.location.hash='#/'+current.id;}}>Reset filters</button></div></details>}
         <button className="theme-toggle" type="button" role="switch" aria-label="Dark mode" aria-checked={theme==='dark'} onClick={toggleTheme} title={`Switch to ${theme==='light'?'dark':'light'} mode`}>
           {theme==='light'?<Sun size={17} aria-hidden="true"/>:<Moon size={17} aria-hidden="true"/>}
           <span>{theme==='light'?'Light mode':'Dark mode'}</span>
@@ -78,7 +72,6 @@ export default function App() {
       <main id="main" tabIndex={-1} ref={main}>
         {!route && routeId !== '/overview' && <p className="route-notice" role="status">Page not found. Showing Overview.</p>}
         <ErrorBoundary key={current.id}><Suspense fallback={<div role="status" className="panel skeleton">Loading view…</div>}><Page/></Suspense></ErrorBoundary>
-        <footer className="app-footer"><span><ShieldCheck size={15}/> Historical evidence, not a forecast.</span><span>ClimateLens India <span className="footer-divider">/</span> Powered by NIElytics</span></footer>
       </main>
     </div>
     <Assistant />

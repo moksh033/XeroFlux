@@ -1,10 +1,11 @@
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { Clock3, Pause, Play, RotateCcw, SkipForward } from 'lucide-react';
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useApi } from '../api/client';
-import type { Catalog, StormRecord } from '../api/types';
-import { Evidence, QueryState } from '../components/DataPanels';
+import type { Catalog, StormRecord, TrackRecord } from '../api/types';
+import { QueryState } from '../components/DataPanels';
 import IndiaMap, { type IndiaMapProps } from '../components/IndiaMap';
-import { useFilters } from '../hooks/useFilters';
+import { defaultStateId, useFilters } from '../hooks/useFilters';
 import { usePlayback, type Playback } from '../hooks/usePlayback';
 
 const categoryLabels = { cyclones: 'Cyclones', rainfall: 'Rainfall', floods: 'Floods', landslides: 'Landslides' } as const;
@@ -12,16 +13,16 @@ type Category = keyof typeof categoryLabels;
 
 function PlaybackControls({ playback, count, timestamp }: { playback: Playback; count: number; timestamp?: string }) {
   return <section className="replay-playback" aria-labelledby="playback-controls-title">
-    <h2 id="playback-controls-title">Observation-step playback</h2>
-    {!count && <p role="status">No compatible source observations are loaded. Playback is unavailable.</p>}
-    {count === 1 && <p>One observation is available for inspection; Play and Step require at least two observations.</p>}
+    <h2 id="playback-controls-title">Playback</h2>
+    {!count && <p role="status">No replayable observations loaded.</p>}
+    {count === 1 && <p>One observation; playback needs two.</p>}
     <div className="playback-controls" aria-describedby="playback-reason">
       <button className="button primary" type="button" disabled={count < 2 || playback.playing} onClick={playback.play}><Play size={16} aria-hidden="true" /> Play</button>{' '}
       <button className="button" type="button" disabled={!count || !playback.playing} onClick={playback.pause}><Pause size={16} aria-hidden="true" /> Pause</button>{' '}
       <button className="button" type="button" disabled={!count} onClick={playback.restart}><RotateCcw size={16} aria-hidden="true" /> Restart</button>{' '}
       <button className="button" type="button" disabled={count < 2 || playback.index >= count - 1} onClick={playback.step}><SkipForward size={16} aria-hidden="true" /> Step</button>
     </div>
-    <p id="playback-reason" className="muted">Speed counts source observations, not elapsed weather time. At 1×, one observation advances each second.</p>
+    <p id="playback-reason" className="muted">1× = one recorded observation per second.</p>
     <div className="playback-timeline">
       <div>
         <label htmlFor="playback-speed">Playback speed</label>
@@ -46,15 +47,46 @@ function ReplayMap({ controls, ...props }: Omit<IndiaMapProps, 'boundaries'> & {
       <IndiaMap {...props} boundaries={boundaries.data?.data} />
     </QueryState>
     {controls}
-    <Evidence meta={boundaries.data?.meta} />
   </section>;
 }
 
 function PageControls({ page, onChange, label }: { page: { offset: number; limit: number; total: number; items: unknown[] }; onChange: (offset: number) => void; label: string }) {
   return <div className="replay-page-controls">
-    <p className="muted">Current-page coverage: {page.items.length ? page.offset + 1 : 0}–{page.offset + page.items.length} of {page.total} {label}. Only this page is loaded, not the full history.</p>
+    <p className="muted">{page.items.length ? page.offset + 1 : 0}–{page.offset + page.items.length} of {page.total} {label} · replaying this page only</p>
     {page.offset > 0 && <button className="button" type="button" onClick={() => onChange(Math.max(0, page.offset - page.limit))}>Previous {label} page</button>}
     {page.offset + page.items.length < page.total && <button className="button" type="button" onClick={() => onChange(page.offset + page.limit)}>Next {label} page</button>}
+  </div>;
+}
+
+function CycloneMeasurements({ records, current }: { records: TrackRecord[]; current?: TrackRecord }) {
+  return <div className="replay-measurements">
+    {(['wind', 'pressure'] as const).flatMap(metric => {
+      const unitKey = metric === 'wind' ? 'wind_unit' : 'pressure_unit';
+      const units = [...new Set(records.map(record => record[unitKey] ?? null))];
+      return units.map(unit => {
+        const title = metric === 'wind' ? 'Recorded wind' : 'Recorded pressure';
+        const rows = records.map(record => ({
+          timestamp: record.timestamp,
+          time: Date.parse(record.timestamp),
+          value: (record[unitKey] ?? null) === unit ? record[metric] ?? null : null,
+        })).filter(row => Number.isFinite(row.time));
+        return <section className="replay-measurement" key={`${metric}:${unit ?? 'unspecified'}`}>
+          <h2>{title} <small>({unit ?? 'unit unspecified'})</small></h2>
+          {rows.some(row => row.value !== null) ? <div className="chart-canvas" role="img" aria-label={`${title} over recorded timestamps, ${unit ?? 'unit unspecified'}. Missing observations are gaps. Values in Track records below.`}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={rows} margin={{ top: 12, right: 16, bottom: 12, left: 4 }}>
+                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
+                <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} scale="time" tickFormatter={value => new Date(value).toISOString().slice(5, 16).replace('T', ' ')} minTickGap={40} stroke="var(--muted)" tick={{ fontSize: 11 }} />
+                <YAxis domain={['auto', 'auto']} stroke="var(--muted)" tick={{ fontSize: 11 }} width={52} />
+                <Tooltip labelFormatter={value => new Date(Number(value)).toISOString()} contentStyle={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)' }} />
+                {current && Number.isFinite(Date.parse(current.timestamp)) && <ReferenceLine x={Date.parse(current.timestamp)} stroke="var(--muted)" strokeDasharray="4 4" />}
+                <Line name={`${title} (${unit ?? 'unit unspecified'})`} dataKey="value" type="linear" stroke={metric === 'wind' ? 'var(--accent)' : 'var(--muted)'} dot={{ r: 3 }} connectNulls={false} isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div> : <p className="empty-state">No measured {metric} in this unit.</p>}
+        </section>;
+      });
+    })}
   </div>;
 }
 
@@ -70,20 +102,29 @@ function StormReplay({ storm }: { storm: StormRecord }) {
       <div className="replay-workbench">
         <ReplayMap track={records} activePoint={current} controls={controls} />
         <aside className="replay-readout" aria-labelledby="replay-observation-title">
-          <h2 id="replay-observation-title"><Clock3 size={21} aria-hidden="true" /> Source record</h2>
-          <dl>
-            <dt>Source timestamp</dt><dd>{current ? <time dateTime={current.timestamp}>{current.timestamp}</time> : 'Not available'}</dd>
-            <dt>Storm identity</dt><dd>{storm.name} · {storm.storm_id} · catalog season {storm.year}</dd>
-            <dt>Recorded position (longitude, latitude)</dt><dd>{current ? `${current.longitude}, ${current.latitude}` : 'Not available'}</dd>
-            <dt>Recorded wind</dt><dd>{current?.wind != null ? `${current.wind} ${current.wind_unit ?? '(source unit unspecified)'}` : 'Not available'}{current?.wind == null && current?.wind_unit ? ` · source unit: ${current.wind_unit}` : ''}</dd>
-            <dt>Recorded pressure</dt><dd>{current?.pressure != null ? `${current.pressure} ${current.pressure_unit ?? '(source unit unspecified)'}` : 'Not available'}{current?.pressure == null && current?.pressure_unit ? ` · source unit: ${current.pressure_unit}` : ''}</dd>
+          <h2 id="replay-observation-title"><Clock3 size={21} aria-hidden="true" /> {storm.name}</h2>
+          <dl className="replay-current-values">
+            <dt>Recorded time</dt><dd>{current ? <time dateTime={current.timestamp}>{current.timestamp}</time> : 'Not available'}</dd>
+            <dt>Wind</dt><dd>{current?.wind != null ? `${current.wind} ${current.wind_unit ?? '(unit unspecified)'}` : 'Not observed'}</dd>
+            <dt>Pressure</dt><dd>{current?.pressure != null ? `${current.pressure} ${current.pressure_unit ?? '(unit unspecified)'}` : 'Not observed'}</dd>
+            <dt>Position (longitude, latitude)</dt><dd>{current ? `${current.longitude}, ${current.latitude}` : 'Not available'}</dd>
           </dl>
-          <p className="muted">The complete returned route is shown. The marker moves between recorded positions only; no interpolation, inferred wind, pressure or landfall.</p>
-          <Evidence meta={track.data?.meta} />
+          <p className="muted">Basin-wide track · recorded positions only</p>
         </aside>
       </div>
+      <CycloneMeasurements records={records} current={current} />
+      <details className="replay-records"><summary>Track records ({records.length})</summary>
+        <div className="replay-table-scroll"><table>
+          <thead><tr><th scope="col">Recorded timestamp</th><th scope="col">Longitude, latitude</th><th scope="col">Wind</th><th scope="col">Pressure</th></tr></thead>
+          <tbody>{records.map((record, index) => <tr key={`${record.timestamp}:${index}`}>
+            <th scope="row"><time dateTime={record.timestamp}>{record.timestamp}</time></th><td>{record.longitude}, {record.latitude}</td>
+            <td>{record.wind == null ? 'Not observed' : `${record.wind} ${record.wind_unit ?? '(unit unspecified)'}`}</td>
+            <td>{record.pressure == null ? 'Not observed' : `${record.pressure} ${record.pressure_unit ?? '(unit unspecified)'}`}</td>
+          </tr>)}</tbody>
+        </table></div>
+      </details>
     </QueryState>
-    {!ready && <>{controls}<Evidence meta={track.data?.meta} /></>}
+    {!ready && controls}
   </>;
 }
 
@@ -112,21 +153,17 @@ function CycloneReplay({ year, scopeControls }: { year: number; scopeControls: R
     </QueryState>
     {!ready && <PlaybackControls playback={unavailablePlayback} count={0} />}
     {storms.data && <PageControls page={storms.data.data} label="storms" onChange={next => setFilters({ storm_offset: String(next), storm_id: undefined })} />}
-    <details className="replay-catalog"><summary>Storm catalog coverage</summary>
-      <p className="muted">Fani is preferred only when present in the returned page. Catalog season years are not reconstructed track dates.</p>
-      <Evidence meta={storms.data?.meta} />
-    </details>
   </>;
 }
 
-function EventReplay({ category, year }: { category: 'floods' | 'landslides'; year: number }) {
+function EventReplay({ category, year, stateId }: { category: 'floods' | 'landslides'; year: number; stateId: string }) {
   const { filters, setFilters } = useFilters();
   const requestedOffset = Number(filters.get('offset') ?? 0);
   const offset = Number.isFinite(requestedOffset) && requestedOffset >= 0 ? Math.floor(requestedOffset) : 0;
-  const query = useApi(category === 'floods' ? '/api/v1/events/floods' : '/api/v1/events/landslides', { year, limit: 100, offset });
+  const query = useApi(category === 'floods' ? '/api/v1/events/floods' : '/api/v1/events/landslides', { state_id: stateId || undefined, year, limit: 100, offset });
   const page = query.data?.data;
   const records = useMemo(() => (query.data?.data.items ?? []).filter(event => event.timestamp && Number.isFinite(Date.parse(event.timestamp))).sort((a, b) => Date.parse(a.timestamp!) - Date.parse(b.timestamp!)), [query.data]);
-  const playback = usePlayback(records.length, `${category}:${year}:${offset}`);
+  const playback = usePlayback(records.length, `${category}:${stateId}:${year}:${offset}`);
   const current = records[playback.index];
   const visible = current ? records.filter(event => Date.parse(event.timestamp!) <= Date.parse(current.timestamp!)) : [];
   const withoutTimestamp = page?.items.filter(event => !event.timestamp || !Number.isFinite(Date.parse(event.timestamp))) ?? [];
@@ -134,33 +171,31 @@ function EventReplay({ category, year }: { category: 'floods' | 'landslides'; ye
   const controls = <PlaybackControls playback={playback} count={ready ? records.length : 0} timestamp={ready ? current?.timestamp ?? undefined : undefined} />;
   return <>
     <div className="replay-workbench">
-      <ReplayMap points={ready ? visible : []} basemapHint={category === 'landslides' ? 'terrain' : undefined} controls={controls} />
+      <ReplayMap points={ready ? visible : []} selectedState={stateId} showStateSelector={false} onSelect={id => setFilters({ state_id: id, offset: undefined })} basemapHint={category === 'landslides' ? 'terrain' : undefined} controls={controls} />
       <aside className="replay-readout" aria-labelledby="replay-events-title">
         <h2 id="replay-events-title">{categoryLabels[category]} · recorded events</h2>
         <QueryState query={query} empty={query.data?.status === 'no_data' || page?.items.length === 0}>
           <p aria-live="polite">{current?.timestamp ? <time dateTime={current.timestamp}>{current.timestamp}</time> : 'No compatible source timestamp available'}</p>
-          <p className="muted">This page's events appear through the selected timestamp, including simultaneous records. Missing coordinates remain in the list, not on the map.</p>
+          <p className="muted">{visible.length} events through this timestamp · missing coordinates are not mapped</p>
           <ol className="replay-event-list" aria-label="Events through the selected source timestamp">
             {visible.map(event => <li key={event.event_id} aria-current={event.event_id === current?.event_id ? 'step' : undefined}>
-              <strong>{event.event_id}</strong> · <time dateTime={event.timestamp ?? undefined}>{event.timestamp}</time> · {event.state_id ?? 'State not resolved'}
-              <p className="muted">Recorded position: {event.longitude != null && event.latitude != null ? `${event.longitude}, ${event.latitude}` : 'Not available; not mapped'}</p>
-              <details><summary>Source attributes</summary><pre style={{ overflowX: 'auto' }}>{JSON.stringify(event.attributes ?? {}, null, 2)}</pre></details>
+              <time dateTime={event.timestamp ?? undefined}>{event.timestamp}</time> · {event.state_id ?? 'State unresolved'}
+              <details><summary>Event record</summary><p>{event.event_id} · {event.longitude != null && event.latitude != null ? `${event.longitude}, ${event.latitude}` : 'Coordinates missing'}</p><pre style={{ overflowX: 'auto' }}>{JSON.stringify(event.attributes ?? {}, null, 2)}</pre></details>
             </li>)}
           </ol>
           {!records.length && <p>No compatible timestamped records are present on this page.</p>}
           {withoutTimestamp.length > 0 && <details><summary>Records without compatible timestamps ({withoutTimestamp.length})</summary>
-            <p>These records are excluded from animated replay. A source year is never turned into an invented day; year-only records have no within-year ordering.</p>
+            <p>Excluded from playback; year-only records have no within-year ordering.</p>
             <ul>{withoutTimestamp.map(event => <li key={event.event_id}>{event.event_id} · source timestamp: {event.timestamp ?? 'Not available'} · source year: {event.year ?? 'Not available'}</li>)}</ul>
           </details>}
         </QueryState>
-        <Evidence meta={query.data?.meta} />
       </aside>
     </div>
     {page && <PageControls page={page} label="events" onChange={next => setFilters({ offset: String(next) })} />}
   </>;
 }
 
-function RainfallReplay({ year, catalog }: { year: number; catalog: Catalog }) {
+function RainfallReplay({ year, catalog, stateId, stateName }: { year: number; catalog: Catalog; stateId: string; stateName: string }) {
   const { filters, setFilters } = useFilters();
   const dates = useMemo(() => [...(catalog.capabilities.rainfall_observation_dates ?? [])].filter(date => date.startsWith(`${year}-`)).sort(), [catalog, year]);
   const playback = usePlayback(dates.length, `rainfall:${year}`);
@@ -173,31 +208,31 @@ function RainfallReplay({ year, catalog }: { year: number; catalog: Catalog }) {
   const currentDate = dates[playback.index];
   const rainfall = useApi('/api/v1/map/rainfall', { year, observation_date: currentDate }, undefined, !!currentDate);
   const ready = !rainfall.isPending && !rainfall.error && rainfall.data?.status === 'ok' && rainfall.data.data.length > 0;
+  const observation = rainfall.data?.data.find(record => record.state_id === stateId);
   const controls = <PlaybackControls playback={playback} count={ready ? dates.length : 0} timestamp={ready ? currentDate : undefined} />;
   if (!dates.length) return <section className="replay-empty">
     <h2>Rainfall observation dates unavailable</h2>
-    <p>No confirmed daily periods were supplied for this year. Annual totals and artificial dates are not substituted.</p>
+    <p>No daily observation dates are available for this year.</p>
     {controls}
-    <Evidence meta={catalog.datasets.rainfall} />
   </section>;
   return <>
     <div className="replay-workbench">
-      <ReplayMap rainfall={ready ? rainfall.data?.data : undefined} unit={rainfall.data?.meta.unit} controls={controls} />
+      <ReplayMap rainfall={ready ? rainfall.data?.data : undefined} unit={rainfall.data?.meta.unit} selectedState={stateId} showStateSelector={false} onSelect={id => setFilters({ state_id: id })} controls={controls} />
       <aside className="replay-readout" aria-labelledby="replay-rainfall-title">
         <h2 id="replay-rainfall-title">Daily Actual · <time dateTime={currentDate}>{currentDate}</time></h2>
-        <label htmlFor="replay-rainfall-date">Source observation date</label>
+        <label htmlFor="replay-rainfall-date">Observation date</label>
         <select id="replay-rainfall-date" value={currentDate} onChange={event => { playback.seek(dates.indexOf(event.target.value)); setFilters({ observation_date: event.target.value }); }}>
           {dates.map(date => <option key={date} value={date}>{date}</option>)}
         </select>
-        <p className="muted">Replay uses declared daily observations, not annual totals or anomalies. Missing values are not measured zero. {rainfall.data?.meta.unit ? `Source unit: ${rainfall.data.meta.unit}.` : 'Source unit unspecified; millimetres are not inferred.'}</p>
+        {stateId && <dl className="replay-current-values"><dt>{stateName}</dt><dd>{observation?.value != null ? `${observation.value} ${rainfall.data?.meta.unit ?? '(unit unspecified)'}` : 'Not observed'}</dd></dl>}
+        <p className="muted">Daily actual ({rainfall.data?.meta.unit ?? 'unit unspecified'}) · missing ≠ zero</p>
         <QueryState query={rainfall} empty={rainfall.data?.status === 'no_data' || rainfall.data?.data.length === 0}>
           <details className="replay-records"><summary>Returned state observations</summary>
             <div className="replay-table-scroll"><table><thead><tr><th scope="col">State identifier</th><th scope="col">Source date</th><th scope="col">Daily Actual ({rainfall.data?.meta.unit ?? 'source unit unspecified'})</th></tr></thead><tbody>
-              {rainfall.data?.data.map(record => <tr key={`${record.state_id}:${record.date ?? record.year}`}><th scope="row">{record.state_id}</th><td>{record.date ?? `Source year only: ${record.year}`}</td><td>{record.value}</td></tr>)}
+              {rainfall.data?.data.map(record => <tr key={`${record.state_id}:${record.date ?? record.year}`}><th scope="row">{record.state_id}</th><td>{record.date ?? `Year only: ${record.year}`}</td><td>{record.value ?? 'Not observed'}</td></tr>)}
             </tbody></table></div>
           </details>
         </QueryState>
-        <Evidence meta={rainfall.data?.meta ?? catalog.datasets.rainfall} />
       </aside>
     </div>
   </>;
@@ -205,8 +240,14 @@ function RainfallReplay({ year, catalog }: { year: number; catalog: Catalog }) {
 
 export default function TimeMachine() {
   const metadata = useApi('/api/v1/metadata');
+  const states = useApi('/api/v1/states');
   const { filters, setFilters } = useFilters();
   const catalog = metadata.data?.data;
+  const stateRecords = states.data?.data ?? [];
+  const stateSelection = filters.get('state_id') ?? defaultStateId(stateRecords);
+  const stateId = stateSelection === 'all' ? '' : stateSelection;
+  const validState = stateSelection === 'all' || stateRecords.some(state => state.state_id === stateId);
+  const stateName = stateRecords.find(state => state.state_id === stateId)?.name ?? 'Selected state';
   const categories = (Object.keys(categoryLabels) as Category[]).filter(category => catalog?.capabilities.observed_replay?.includes(category));
   const requestedCategory = filters.get('hazard');
   const category = categories.find(item => item === requestedCategory) ?? categories[0];
@@ -228,29 +269,33 @@ export default function TimeMachine() {
         {years.map(item => <option key={item} value={item}>{item}</option>)}
       </select>
     </div>
+    {category && category !== 'cyclones' && <div><label htmlFor="replay-state">State</label>
+      <select id="replay-state" value={stateSelection} disabled={states.isPending} onChange={event => setFilters({ state_id: event.target.value, offset: undefined })}>
+        {!validState && <option value={stateSelection}>Select a catalog state</option>}
+        <option value="all">All states</option>
+        {stateRecords.map(state => <option key={state.state_id} value={state.state_id}>{state.name}</option>)}
+      </select>
+    </div>}
   </>;
   return <>
     <header className="page-heading">
       <h1>Climate Time Machine</h1>
-      <p className="muted">Replay recorded positions and event timestamps.</p>
     </header>
     <QueryState query={metadata} empty={metadata.data?.status === 'no_data'}>
       {category === 'cyclones' && year !== undefined
         ? <CycloneReplay key={`cyclones:${year}`} year={year} scopeControls={scopeControls} />
         : <>
           <div className="replay-scope-controls">{scopeControls}</div>
-          {(category === 'floods' || category === 'landslides') && year !== undefined && <EventReplay key={`${category}:${year}`} category={category} year={year} />}
-          {category === 'rainfall' && year !== undefined && catalog && <RainfallReplay key={`rainfall:${year}`} catalog={catalog} year={year} />}
+          <QueryState query={states} empty={Boolean(states.data) && !stateRecords.length}>
+            {!validState && <p role="status">Select a catalog state or all states.</p>}
+            {validState && (category === 'floods' || category === 'landslides') && year !== undefined && <EventReplay key={`${category}:${stateId}:${year}`} category={category} year={year} stateId={stateId} />}
+            {validState && category === 'rainfall' && year !== undefined && catalog && <RainfallReplay key={`rainfall:${year}`} catalog={catalog} year={year} stateId={stateId} stateName={stateName} />}
+          </QueryState>
         </>}
       {requestedCategory && requestedCategory !== category && <p role="status">The requested category does not support observed replay. Showing {category ? categoryLabels[category] : 'no category'} instead.</p>}
       {filters.has('year') && requestedYear !== year && <p role="status">The requested year is not in this category's confirmed coverage. {year ? `Showing ${year}.` : 'No period can be selected.'}</p>}
       {!categories.length && <p role="status">No observed replay capability has been provided by the backend.</p>}
     </QueryState>
     {!ready && <PlaybackControls playback={unavailablePlayback} count={0} />}
-    <section className="replay-notes" aria-label="Historical replay limitations">
-      <p className="muted">Source intervals and timestamps retain their original precision; missing measurements are not generated. Coverage does not prove complete reporting or absence of unrecorded events. Historical analysis only, not forecasting or official alerts. Heat and drought have no compatible observed replay.</p>
-      <a href="#/sources">Read source and coverage limitations</a>
-      <Evidence meta={metadata.data?.meta} />
-    </section>
   </>;
 }

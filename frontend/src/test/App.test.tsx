@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import App from '../App';
@@ -18,22 +18,5 @@ describe('Connected workspace navigation',()=>{
   renderWorkspace();fireEvent.click(screen.getByRole('button',{name:'Open navigation'}));
   expect(screen.getByRole('dialog')).toBeInTheDocument();fireEvent.keyDown(document,{key:'Escape'});
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();expect(screen.getByRole('button',{name:'Open navigation'})).toHaveFocus();
- });
- it('offers an actual health retry when the backend fails',async()=>{
-  renderWorkspace();const button=await screen.findByRole('button',{name:'Backend offline · Retry'});
-  vi.mocked(fetch).mockResolvedValueOnce(Response.json({status:'ok',service:'Synthetic health only',data_ready:true,analytics_configured:false,limitations:[]}));
-  fireEvent.click(button);await waitFor(()=>expect(screen.getByText('Historical API connected')).toBeInTheDocument());
- });
- it('resets route filters without clearing the saved theme',async()=>{
-  window.location.hash='#/overview?state_id=SYNTHETIC&observation_date=2020-01-01';
-  window.localStorage.setItem('climatelens-theme','dark');
-  renderWorkspace();
-  await screen.findByRole('heading',{level:1},{timeout:5000});
-  fireEvent.click(screen.getByText('Active filters'));
-  expect(screen.getByText('SYNTHETIC')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button',{name:'Reset filters'}));
-  await waitFor(()=>expect(window.location.hash).toBe('#/overview'));
-  expect(window.localStorage.getItem('climatelens-theme')).toBe('dark');
-  expect(screen.getByRole('switch',{name:'Dark mode'})).toBeChecked();
  });
 });

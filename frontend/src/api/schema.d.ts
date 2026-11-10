@@ -293,10 +293,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dav": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dav Analysis */
+        get: operations["dav_analysis_api_v1_dav_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Assistant Query */
+        post: operations["assistant_query_api_v1_assistant_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AssistantQueryRequest */
+        AssistantQueryRequest: {
+            /** Query */
+            query: string;
+            /** Context */
+            context?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** AssistantQueryResponse */
+        AssistantQueryResponse: {
+            /** Answer */
+            answer: string;
+            /** Sources */
+            sources?: string[];
+            /** Links */
+            links?: {
+                [key: string]: unknown;
+            }[];
+            /** Provider */
+            provider: string;
+        };
+        /** AuditColumn */
+        AuditColumn: {
+            /** Name */
+            name: string;
+            /** Dtype */
+            dtype: string;
+            /** Missing */
+            missing: number;
+        };
+        /** AuditPayload */
+        AuditPayload: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "audit";
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Scope
+             * @default filtered_prepared_records
+             * @constant
+             */
+            scope: "filtered_prepared_records";
+            /** Rows */
+            rows: number;
+            /** Columns */
+            columns: components["schemas"]["AuditColumn"][];
+            /** Duplicate Rows */
+            duplicate_rows: number;
+            /** Duplicate Identities */
+            duplicate_identities: number;
+            /** Numeric */
+            numeric: components["schemas"]["NumericAudit"][];
+        };
+        /** Bin */
+        Bin: {
+            /** Lower */
+            lower: number;
+            /** Upper */
+            upper: number;
+            /** Count */
+            count: number;
+        };
         /** BoundaryFeature */
         BoundaryFeature: {
             /**
@@ -351,6 +451,23 @@ export interface components {
                 [key: string]: components["schemas"]["Metadata"];
             };
         };
+        /** ComparisonDAVPayload */
+        ComparisonDAVPayload: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "comparison";
+            /** Reason */
+            reason?: string | null;
+            comparison: components["schemas"]["ComparisonResult"];
+            a: components["schemas"]["Distribution"];
+            b: components["schemas"]["Distribution"];
+            /** Points */
+            points: components["schemas"]["PairPoint"][];
+            regression: components["schemas"]["Regression"];
+            test: components["schemas"]["Test"];
+        };
         /**
          * ComparisonPoint
          * @description Plugin-supplied differences; percentage baseline is state_a, never zero.
@@ -391,6 +508,132 @@ export interface components {
             absolute_difference?: number | null;
             /** Percentage Difference */
             percentage_difference?: number | null;
+        };
+        /** CorrelationCell */
+        CorrelationCell: {
+            /** X */
+            x: string;
+            /** Y */
+            y: string;
+            /** N */
+            n: number;
+            /** R */
+            r: number | null;
+            /** Reason */
+            reason: string | null;
+            /** Points */
+            points: components["schemas"]["PairPoint"][];
+            regression: components["schemas"]["Regression"];
+        };
+        /** CorrelationsPayload */
+        CorrelationsPayload: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "correlations";
+            /** Reason */
+            reason?: string | null;
+            /** Variables */
+            variables: [
+                "rainfall",
+                "floods",
+                "landslides",
+                "temperature",
+                "drought"
+            ];
+            /** Cells */
+            cells: components["schemas"]["CorrelationCell"][];
+        };
+        /** CountRow */
+        CountRow: {
+            /**
+             * Hazard
+             * @enum {string}
+             */
+            hazard: "floods" | "landslides";
+            /** Decade */
+            decade: number;
+            /** Count */
+            count: number | null;
+            /** Reason */
+            reason: string | null;
+        };
+        /** CountsPayload */
+        CountsPayload: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "counts";
+            /** Reason */
+            reason?: string | null;
+            /** Rows */
+            rows: components["schemas"]["CountRow"][];
+            /** Excluded Undated */
+            excluded_undated: number;
+        };
+        /** Distribution */
+        Distribution: {
+            /** N */
+            n: number;
+            /** Missing */
+            missing: number;
+            /** Mean */
+            mean: number | null;
+            /** Median */
+            median: number | null;
+            /** Variance */
+            variance: number | null;
+            /** Std */
+            std: number | null;
+            /** Min */
+            min: number | null;
+            /** P10 */
+            p10: number | null;
+            /** Q1 */
+            q1: number | null;
+            /** Q3 */
+            q3: number | null;
+            /** P90 */
+            p90: number | null;
+            /** Max */
+            max: number | null;
+            /** Iqr */
+            iqr: number | null;
+            /** Lower Fence */
+            lower_fence: number | null;
+            /** Upper Fence */
+            upper_fence: number | null;
+            /** Whisker Low */
+            whisker_low: number | null;
+            /** Whisker High */
+            whisker_high: number | null;
+            /** Bowley */
+            bowley: number | null;
+            /** Kelly */
+            kelly: number | null;
+            /** Excess Kurtosis */
+            excess_kurtosis: number | null;
+            /** Kurtosis Class */
+            kurtosis_class: ("leptokurtic" | "mesokurtic" | "platykurtic") | null;
+            /** Bins */
+            bins: components["schemas"]["Bin"][];
+            /** Outliers */
+            outliers: components["schemas"]["SamplePoint"][];
+        };
+        /** DistributionPayload */
+        DistributionPayload: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "distribution";
+            /** Reason */
+            reason?: string | null;
+            /** Points */
+            points: components["schemas"]["SamplePoint"][];
+            summary: components["schemas"]["Distribution"];
         };
         /** DroughtRecord */
         DroughtRecord: {
@@ -446,6 +689,11 @@ export interface components {
             crs?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
         };
         /** Health */
         Health: {
@@ -559,6 +807,25 @@ export interface components {
             /** Coordinates */
             coordinates: number[][][][];
         };
+        /** NumericAudit */
+        NumericAudit: {
+            /** Name */
+            name: string;
+            /** Count */
+            count: number;
+            /** Mean */
+            mean: number | null;
+            /** Median */
+            median: number | null;
+            /** Variance */
+            variance: number | null;
+            /** Std */
+            std: number | null;
+            /** Min */
+            min: number | null;
+            /** Max */
+            max: number | null;
+        };
         /** Page[EventRecord] */
         Page_EventRecord_: {
             /** Items */
@@ -580,6 +847,17 @@ export interface components {
             limit: number;
             /** Offset */
             offset: number;
+        };
+        /** PairPoint */
+        PairPoint: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
         };
         /** Period */
         Period: {
@@ -609,6 +887,21 @@ export interface components {
             /** Date */
             date?: string | null;
         };
+        /** Regression */
+        Regression: {
+            /** N */
+            n: number;
+            /** Slope */
+            slope: number | null;
+            /** Intercept */
+            intercept: number | null;
+            /** R */
+            r: number | null;
+            /** R Squared */
+            r_squared: number | null;
+            /** Reason */
+            reason: string | null;
+        };
         /** RelationshipObservation */
         RelationshipObservation: {
             /** Hazard */
@@ -625,6 +918,27 @@ export interface components {
             longitude?: number | null;
             /** Latitude */
             latitude?: number | null;
+        };
+        /** RelationshipPayload */
+        RelationshipPayload: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "relationship";
+            /** Reason */
+            reason?: string | null;
+            /** Points */
+            points: components["schemas"]["PairPoint"][];
+            regression: components["schemas"]["Regression"];
+            /** X Label */
+            x_label: string;
+            /** Y Label */
+            y_label: string;
+            /** X Unit */
+            x_unit?: string | null;
+            /** Y Unit */
+            y_unit?: string | null;
         };
         /** Result[Catalog] */
         Result_Catalog_: {
@@ -664,6 +978,17 @@ export interface components {
              */
             status: "ok" | "no_data";
             data: components["schemas"]["Page_StormRecord_"];
+            meta: components["schemas"]["Metadata"];
+        };
+        /** Result[Union[Annotated[Union[DistributionPayload, ComparisonDAVPayload, RelationshipPayload, CountsPayload, CorrelationsPayload, AuditPayload], FieldInfo(annotation=NoneType, required=True, discriminator='kind')], NoneType]] */
+        Result_Union_Annotated_Union_DistributionPayload__ComparisonDAVPayload__RelationshipPayload__CountsPayload__CorrelationsPayload__AuditPayload___FieldInfo_annotation_NoneType__required_True__discriminator__kind_____NoneType__: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "no_data";
+            /** Data */
+            data: (components["schemas"]["DistributionPayload"] | components["schemas"]["ComparisonDAVPayload"] | components["schemas"]["RelationshipPayload"] | components["schemas"]["CountsPayload"] | components["schemas"]["CorrelationsPayload"] | components["schemas"]["AuditPayload"]) | null;
             meta: components["schemas"]["Metadata"];
         };
         /** Result[Union[ComparisonResult, NoneType]] */
@@ -764,6 +1089,15 @@ export interface components {
             data: components["schemas"]["TrackRecord"][];
             meta: components["schemas"]["Metadata"];
         };
+        /** SamplePoint */
+        SamplePoint: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value: number;
+        };
         /** Source */
         Source: {
             /** Id */
@@ -814,6 +1148,42 @@ export interface components {
             /** Month */
             month?: number | null;
         };
+        /** Test */
+        Test: {
+            /** N A */
+            n_a: number;
+            /** N B */
+            n_b: number;
+            /** Mean A */
+            mean_a: number | null;
+            /** Mean B */
+            mean_b: number | null;
+            /** Variance A */
+            variance_a: number | null;
+            /** Variance B */
+            variance_b: number | null;
+            /** Pooled Sd */
+            pooled_sd: number | null;
+            /** T */
+            t: number | null;
+            /** P Value */
+            p_value: number | null;
+            /** Df */
+            df: number | null;
+            /**
+             * Alpha
+             * @default 0.05
+             * @constant
+             */
+            alpha: 0.05;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "reject" | "fail_to_reject" | "unavailable";
+            /** Reason */
+            reason: string | null;
+        };
         /** TrackRecord */
         TrackRecord: {
             /** Storm Id */
@@ -832,6 +1202,19 @@ export interface components {
             wind_unit?: string | null;
             /** Pressure Unit */
             pressure_unit?: string | null;
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -1806,6 +2189,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    dav_analysis_api_v1_dav_get: {
+        parameters: {
+            query: {
+                operation: "distribution" | "comparison" | "relationship" | "counts" | "correlations" | "audit";
+                dataset?: ("rainfall" | "temperature" | "drought" | "tracks" | "floods" | "landslides") | null;
+                state_id?: string | null;
+                state_a?: string | null;
+                state_b?: string | null;
+                metric?: string | null;
+                region?: string | null;
+                storm_id?: string | null;
+                start_year?: number | null;
+                end_year?: number | null;
+                month?: number | null;
+                measure?: "value" | "wind" | "pressure";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Result_Union_Annotated_Union_DistributionPayload__ComparisonDAVPayload__RelationshipPayload__CountsPayload__CorrelationsPayload__AuditPayload___FieldInfo_annotation_NoneType__required_True__discriminator__kind_____NoneType__"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    assistant_query_api_v1_assistant_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantQueryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantQueryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

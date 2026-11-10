@@ -930,8 +930,318 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
           description: Service Unavailable
+  /api/v1/dav:
+    get:
+      summary: Dav Analysis
+      operationId: dav_analysis_api_v1_dav_get
+      parameters:
+      - name: operation
+        in: query
+        required: true
+        schema:
+          enum:
+          - distribution
+          - comparison
+          - relationship
+          - counts
+          - correlations
+          - audit
+          type: string
+          title: Operation
+      - name: dataset
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - rainfall
+            - temperature
+            - drought
+            - tracks
+            - floods
+            - landslides
+            type: string
+          - type: 'null'
+          title: Dataset
+      - name: state_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 100
+          - type: 'null'
+          title: State Id
+      - name: state_a
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 100
+          - type: 'null'
+          title: State A
+      - name: state_b
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 100
+          - type: 'null'
+          title: State B
+      - name: metric
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 100
+          - type: 'null'
+          title: Metric
+      - name: region
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 100
+          - type: 'null'
+          title: Region
+      - name: storm_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 100
+          - type: 'null'
+          title: Storm Id
+      - name: start_year
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 2026
+            minimum: 1800
+          - type: 'null'
+          title: Start Year
+      - name: end_year
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 2026
+            minimum: 1800
+          - type: 'null'
+          title: End Year
+      - name: month
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 12
+            minimum: 1
+          - type: 'null'
+          title: Month
+      - name: measure
+        in: query
+        required: false
+        schema:
+          enum:
+          - value
+          - wind
+          - pressure
+          type: string
+          default: value
+          title: Measure
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Result_Union_Annotated_Union_DistributionPayload__ComparisonDAVPayload__RelationshipPayload__CountsPayload__CorrelationsPayload__AuditPayload___FieldInfo_annotation_NoneType__required_True__discriminator__kind_____NoneType__'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Not Found
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unprocessable Entity
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal Server Error
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Service Unavailable
+  /api/v1/assistant:
+    post:
+      summary: Assistant Query
+      operationId: assistant_query_api_v1_assistant_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantQueryRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantQueryResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
+    AssistantQueryRequest:
+      properties:
+        query:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Query
+        context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Context
+      type: object
+      required:
+      - query
+      title: AssistantQueryRequest
+    AssistantQueryResponse:
+      properties:
+        answer:
+          type: string
+          title: Answer
+        sources:
+          items:
+            type: string
+          type: array
+          title: Sources
+        links:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Links
+        provider:
+          type: string
+          title: Provider
+      type: object
+      required:
+      - answer
+      - provider
+      title: AssistantQueryResponse
+    AuditColumn:
+      properties:
+        name:
+          type: string
+          title: Name
+        dtype:
+          type: string
+          title: Dtype
+        missing:
+          type: integer
+          title: Missing
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - dtype
+      - missing
+      title: AuditColumn
+    AuditPayload:
+      properties:
+        kind:
+          type: string
+          const: audit
+          title: Kind
+          default: audit
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        scope:
+          type: string
+          const: filtered_prepared_records
+          title: Scope
+          default: filtered_prepared_records
+        rows:
+          type: integer
+          title: Rows
+        columns:
+          items:
+            $ref: '#/components/schemas/AuditColumn'
+          type: array
+          title: Columns
+        duplicate_rows:
+          type: integer
+          title: Duplicate Rows
+        duplicate_identities:
+          type: integer
+          title: Duplicate Identities
+        numeric:
+          items:
+            $ref: '#/components/schemas/NumericAudit'
+          type: array
+          title: Numeric
+      additionalProperties: false
+      type: object
+      required:
+      - rows
+      - columns
+      - duplicate_rows
+      - duplicate_identities
+      - numeric
+      title: AuditPayload
+    Bin:
+      properties:
+        lower:
+          type: number
+          title: Lower
+        upper:
+          type: number
+          title: Upper
+        count:
+          type: integer
+          title: Count
+      additionalProperties: false
+      type: object
+      required:
+      - lower
+      - upper
+      - count
+      title: Bin
     BoundaryFeature:
       properties:
         type:
@@ -1027,6 +1337,43 @@ components:
       - capabilities
       - datasets
       title: Catalog
+    ComparisonDAVPayload:
+      properties:
+        kind:
+          type: string
+          const: comparison
+          title: Kind
+          default: comparison
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        comparison:
+          $ref: '#/components/schemas/ComparisonResult'
+        a:
+          $ref: '#/components/schemas/Distribution'
+        b:
+          $ref: '#/components/schemas/Distribution'
+        points:
+          items:
+            $ref: '#/components/schemas/PairPoint'
+          type: array
+          title: Points
+        regression:
+          $ref: '#/components/schemas/Regression'
+        test:
+          $ref: '#/components/schemas/Test'
+      additionalProperties: false
+      type: object
+      required:
+      - comparison
+      - a
+      - b
+      - points
+      - regression
+      - test
+      title: ComparisonDAVPayload
     ComparisonPoint:
       properties:
         year:
@@ -1120,6 +1467,308 @@ components:
       - series
       title: ComparisonResult
       description: Authoritative plugin output; absent summary values remain absent/null.
+    CorrelationCell:
+      properties:
+        x:
+          type: string
+          title: X
+        y:
+          type: string
+          title: Y
+        n:
+          type: integer
+          title: N
+        r:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: R
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        points:
+          items:
+            $ref: '#/components/schemas/PairPoint'
+          type: array
+          title: Points
+        regression:
+          $ref: '#/components/schemas/Regression'
+      additionalProperties: false
+      type: object
+      required:
+      - x
+      - y
+      - n
+      - r
+      - reason
+      - points
+      - regression
+      title: CorrelationCell
+    CorrelationsPayload:
+      properties:
+        kind:
+          type: string
+          const: correlations
+          title: Kind
+          default: correlations
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        variables:
+          prefixItems:
+          - type: string
+            const: rainfall
+          - type: string
+            const: floods
+          - type: string
+            const: landslides
+          - type: string
+            const: temperature
+          - type: string
+            const: drought
+          type: array
+          maxItems: 5
+          minItems: 5
+          title: Variables
+        cells:
+          items:
+            $ref: '#/components/schemas/CorrelationCell'
+          type: array
+          title: Cells
+      additionalProperties: false
+      type: object
+      required:
+      - variables
+      - cells
+      title: CorrelationsPayload
+    CountRow:
+      properties:
+        hazard:
+          type: string
+          enum:
+          - floods
+          - landslides
+          title: Hazard
+        decade:
+          type: integer
+          title: Decade
+        count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Count
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      additionalProperties: false
+      type: object
+      required:
+      - hazard
+      - decade
+      - count
+      - reason
+      title: CountRow
+    CountsPayload:
+      properties:
+        kind:
+          type: string
+          const: counts
+          title: Kind
+          default: counts
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        rows:
+          items:
+            $ref: '#/components/schemas/CountRow'
+          type: array
+          title: Rows
+        excluded_undated:
+          type: integer
+          title: Excluded Undated
+      additionalProperties: false
+      type: object
+      required:
+      - rows
+      - excluded_undated
+      title: CountsPayload
+    Distribution:
+      properties:
+        n:
+          type: integer
+          title: N
+        missing:
+          type: integer
+          title: Missing
+        mean:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Mean
+        median:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Median
+        variance:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Variance
+        std:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Std
+        min:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Min
+        p10:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: P10
+        q1:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Q1
+        q3:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Q3
+        p90:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: P90
+        max:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Max
+        iqr:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Iqr
+        lower_fence:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Lower Fence
+        upper_fence:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Upper Fence
+        whisker_low:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Whisker Low
+        whisker_high:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Whisker High
+        bowley:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Bowley
+        kelly:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Kelly
+        excess_kurtosis:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Excess Kurtosis
+        kurtosis_class:
+          anyOf:
+          - type: string
+            enum:
+            - leptokurtic
+            - mesokurtic
+            - platykurtic
+          - type: 'null'
+          title: Kurtosis Class
+        bins:
+          items:
+            $ref: '#/components/schemas/Bin'
+          type: array
+          title: Bins
+        outliers:
+          items:
+            $ref: '#/components/schemas/SamplePoint'
+          type: array
+          title: Outliers
+      additionalProperties: false
+      type: object
+      required:
+      - n
+      - missing
+      - mean
+      - median
+      - variance
+      - std
+      - min
+      - p10
+      - q1
+      - q3
+      - p90
+      - max
+      - iqr
+      - lower_fence
+      - upper_fence
+      - whisker_low
+      - whisker_high
+      - bowley
+      - kelly
+      - excess_kurtosis
+      - kurtosis_class
+      - bins
+      - outliers
+      title: Distribution
+    DistributionPayload:
+      properties:
+        kind:
+          type: string
+          const: distribution
+          title: Kind
+          default: distribution
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        points:
+          items:
+            $ref: '#/components/schemas/SamplePoint'
+          type: array
+          title: Points
+        summary:
+          $ref: '#/components/schemas/Distribution'
+      additionalProperties: false
+      type: object
+      required:
+      - points
+      - summary
+      title: DistributionPayload
     DroughtRecord:
       properties:
         year:
@@ -1230,6 +1879,15 @@ components:
       - type
       - features
       title: GeometryCollection
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
     Health:
       properties:
         status:
@@ -1480,6 +2138,56 @@ components:
       - type
       - coordinates
       title: MultiPolygonGeometry
+    NumericAudit:
+      properties:
+        name:
+          type: string
+          title: Name
+        count:
+          type: integer
+          title: Count
+        mean:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Mean
+        median:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Median
+        variance:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Variance
+        std:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Std
+        min:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Min
+        max:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Max
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - count
+      - mean
+      - median
+      - variance
+      - std
+      - min
+      - max
+      title: NumericAudit
     Page_EventRecord_:
       properties:
         items:
@@ -1526,6 +2234,28 @@ components:
       - limit
       - offset
       title: Page[StormRecord]
+    PairPoint:
+      properties:
+        id:
+          type: string
+          title: Id
+        label:
+          type: string
+          title: Label
+        x:
+          type: number
+          title: X
+        y:
+          type: number
+          title: Y
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - label
+      - x
+      - y
+      title: PairPoint
     Period:
       properties:
         start:
@@ -1588,6 +2318,46 @@ components:
       - year
       - value
       title: RainfallRecord
+    Regression:
+      properties:
+        n:
+          type: integer
+          title: N
+        slope:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Slope
+        intercept:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Intercept
+        r:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: R
+        r_squared:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: R Squared
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      additionalProperties: false
+      type: object
+      required:
+      - n
+      - slope
+      - intercept
+      - r
+      - r_squared
+      - reason
+      title: Regression
     RelationshipObservation:
       properties:
         hazard:
@@ -1635,6 +2405,49 @@ components:
       - hazard
       - event_id
       title: RelationshipObservation
+    RelationshipPayload:
+      properties:
+        kind:
+          type: string
+          const: relationship
+          title: Kind
+          default: relationship
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        points:
+          items:
+            $ref: '#/components/schemas/PairPoint'
+          type: array
+          title: Points
+        regression:
+          $ref: '#/components/schemas/Regression'
+        x_label:
+          type: string
+          title: X Label
+        y_label:
+          type: string
+          title: Y Label
+        x_unit:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X Unit
+        y_unit:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Y Unit
+      additionalProperties: false
+      type: object
+      required:
+      - points
+      - regression
+      - x_label
+      - y_label
+      title: RelationshipPayload
     Result_Catalog_:
       properties:
         status:
@@ -1707,6 +2520,44 @@ components:
       - data
       - meta
       title: Result[Page[StormRecord]]
+    ? Result_Union_Annotated_Union_DistributionPayload__ComparisonDAVPayload__RelationshipPayload__CountsPayload__CorrelationsPayload__AuditPayload___FieldInfo_annotation_NoneType__required_True__discriminator__kind_____NoneType__
+    : properties:
+        status:
+          type: string
+          enum:
+          - ok
+          - no_data
+          title: Status
+        data:
+          anyOf:
+          - oneOf:
+            - $ref: '#/components/schemas/DistributionPayload'
+            - $ref: '#/components/schemas/ComparisonDAVPayload'
+            - $ref: '#/components/schemas/RelationshipPayload'
+            - $ref: '#/components/schemas/CountsPayload'
+            - $ref: '#/components/schemas/CorrelationsPayload'
+            - $ref: '#/components/schemas/AuditPayload'
+            discriminator:
+              propertyName: kind
+              mapping:
+                audit: '#/components/schemas/AuditPayload'
+                comparison: '#/components/schemas/ComparisonDAVPayload'
+                correlations: '#/components/schemas/CorrelationsPayload'
+                counts: '#/components/schemas/CountsPayload'
+                distribution: '#/components/schemas/DistributionPayload'
+                relationship: '#/components/schemas/RelationshipPayload'
+          - type: 'null'
+          title: Data
+        meta:
+          $ref: '#/components/schemas/Metadata'
+      type: object
+      required:
+      - status
+      - data
+      - meta
+      title: Result[Union[Annotated[Union[DistributionPayload, ComparisonDAVPayload,
+        RelationshipPayload, CountsPayload, CorrelationsPayload, AuditPayload], FieldInfo(annotation=NoneType,
+        required=True, discriminator='kind')], NoneType]]
     Result_Union_ComparisonResult__NoneType__:
       properties:
         status:
@@ -1895,6 +2746,24 @@ components:
       - data
       - meta
       title: Result[list[TrackRecord]]
+    SamplePoint:
+      properties:
+        id:
+          type: string
+          title: Id
+        label:
+          type: string
+          title: Label
+        value:
+          type: number
+          title: Value
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - label
+      - value
+      title: SamplePoint
     Source:
       properties:
         id:
@@ -2007,6 +2876,87 @@ components:
       - value
       - region
       title: TemperatureRecord
+    Test:
+      properties:
+        n_a:
+          type: integer
+          title: N A
+        n_b:
+          type: integer
+          title: N B
+        mean_a:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Mean A
+        mean_b:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Mean B
+        variance_a:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Variance A
+        variance_b:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Variance B
+        pooled_sd:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Pooled Sd
+        t:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: T
+        p_value:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: P Value
+        df:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Df
+        alpha:
+          type: number
+          const: 0.05
+          title: Alpha
+          default: 0.05
+        decision:
+          type: string
+          enum:
+          - reject
+          - fail_to_reject
+          - unavailable
+          title: Decision
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      additionalProperties: false
+      type: object
+      required:
+      - n_a
+      - n_b
+      - mean_a
+      - mean_b
+      - variance_a
+      - variance_b
+      - pooled_sd
+      - t
+      - p_value
+      - df
+      - decision
+      - reason
+      title: Test
     TrackRecord:
       properties:
         storm_id:
@@ -2053,3 +3003,29 @@ components:
       - longitude
       - latitude
       title: TrackRecord
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

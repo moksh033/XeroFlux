@@ -17,6 +17,8 @@ from app.services.analytics_service import AnalyticsService
 from app.services.reports_service import ReportService
 from app.services.analytics_models import Insight, ComparisonResult, MultiHazardRelationship
 from app.services.assistant_service import AssistantService
+from app.services.dav_models import DAVPayload
+from app.services.dav_service import DAVService
 
 logger = logging.getLogger('uvicorn.error')
 T = TypeVar('T')
@@ -77,6 +79,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     repository = DatasetRepository(config.data_dir)
     climate = ClimateService(repository)
     analytics = AnalyticsService(config, repository)
+    dav = DAVService(repository, analytics)
     reports = ReportService(repository, analytics)
     assistant = AssistantService(config, climate, repository)
 
@@ -186,6 +189,27 @@ def create_app(config: Config | None = None) -> FastAPI:
         period(start_year,end_year)
         content = reports.generate(state_id,start_year,end_year)
         return Response(content,media_type='application/pdf',headers={'Content-Disposition':f'attachment; filename="climatelens-{start_year}-{end_year}.pdf"','Cache-Control':'no-store'})
+    @app.get(prefix+'/dav', response_model=Result[DAVPayload | None], responses=errors)
+    def dav_analysis(
+        operation: Literal['distribution', 'comparison', 'relationship', 'counts', 'correlations', 'audit'],
+        dataset: Literal['rainfall', 'temperature', 'drought', 'tracks', 'floods', 'landslides'] | None = None,
+        state_id: StateID | None = None,
+        state_a: StateID | None = None,
+        state_b: StateID | None = None,
+        metric: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
+        region: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
+        storm_id: Annotated[str | None, Query(min_length=1, max_length=100)] = None,
+        start_year: Year | None = None,
+        end_year: Year | None = None,
+        month: Annotated[int | None, Query(ge=1, le=12)] = None,
+        measure: Literal['value', 'wind', 'pressure'] = 'value',
+    ):
+        period(start_year, end_year)
+        return dav.execute(operation, dict(
+            dataset=dataset, state_id=state_id, state_a=state_a, state_b=state_b,
+            metric=metric, region=region, storm_id=storm_id, start_year=start_year,
+            end_year=end_year, month=month, measure=measure,
+        ))
     @app.post(prefix+'/assistant', response_model=AssistantQueryResponse)
     def assistant_query(body: AssistantQueryRequest):
         res = assistant.query(body.query, body.context)

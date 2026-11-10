@@ -1,24 +1,29 @@
+import { useEffect, useState } from 'react';
 import { Droplets, Mountain, Thermometer, Waves, Wind } from 'lucide-react';
 import { useApi } from '../api/client';
-import type { Metadata } from '../api/types';
-import { Evidence, QueryState, ReportDownload, TrendChart } from '../components/DataPanels';
+import type { DAVQuery, Metadata } from '../api/types';
+import { AnalysisTabs, CountPanel, DistributionDetails, DistributionPanel, RelationshipPanel } from '../components/DAVPanels';
+import { AnalysisDrawer } from '../components/AnalysisDrawer';
+import { AnalysisExplanation } from '../components/AnalysisExplanation';
+import { QueryState, ReportDownload, TrendChart } from '../components/DataPanels';
 import { KpiCard, SlicerRibbon } from '../components/Executive';
 import IndiaMap from '../components/IndiaMap';
-import { useFilters } from '../hooks/useFilters';
+import { defaultStateId, useFilters } from '../hooks/useFilters';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 const lenses = [
-  { id: 'rainfall', label: 'Rainfall', Icon: Droplets, scope: 'Daily state rainfall observations are not annual totals, anomalies, or a complete climate baseline.' },
-  { id: 'heat', label: 'Heat', Icon: Thermometer, scope: 'Temperature is regional, not state-level. Heat-wave days are not interchangeable with maximum temperature.' },
-  { id: 'floods', label: 'Floods', Icon: Waves, scope: 'Recorded flood events, not continuous measurements of inundation or risk.' },
-  { id: 'drought', label: 'Drought', Icon: Droplets, scope: 'National drought indicators cannot be mapped as state measurements or used for state comparisons.' },
-  { id: 'landslides', label: 'Landslides', Icon: Mountain, scope: 'Reported landslides have uneven coverage and unverified original provenance.' },
-  { id: 'cyclones', label: 'Cyclones', Icon: Wind, scope: 'Recorded basin positions are not state exposure, landfall estimates, forecasts, or simulated routes.' },
+  { id: 'floods', label: 'Floods', Icon: Waves, scope: 'Documented events, not measured hazard risk.' },
+  { id: 'heat', label: 'Heat', Icon: Thermometer, scope: 'Regional temperature observations, not state heat-wave days.' },
+  { id: 'drought', label: 'Drought', Icon: Droplets, scope: 'National observations only; no state estimates.' },
+  { id: 'landslides', label: 'Landslides', Icon: Mountain, scope: 'Documented events, not measured hazard risk.' },
+  { id: 'cyclones', label: 'Cyclones', Icon: Wind, scope: 'Observed basin tracks, not state exposure or forecasts.' },
 ] as const;
 
-/** View filters operate on returned source rows, never on undocumented API parameters. */
-function ReturnedSeries({ rows, meta, title, allowMonths }: { rows: { year: number; month?: number | null; value: number }[]; meta: Metadata; title: string; allowMonths: boolean }) {
+/** View filters and DAV requests share the exact returned source selection. */
+function ReturnedSeries({ rows, meta, title, allowMonths, dataset, region }: { rows: { year: number; month?: number | null; value: number }[]; meta: Metadata; title: string; allowMonths: boolean; dataset: 'temperature' | 'drought'; region?: string }) {
   const { filters, setFilters } = useFilters();
+  const [explainOpen, setExplainOpen] = useState(false);
+  const view = filters.get('dav_view') === 'distribution' ? 'distribution' : 'trend';
   const years = [...new Set(rows.map((row) => row.year))].sort((a, b) => a - b);
   const months = allowMonths ? [...new Set(rows.flatMap((row) => row.month != null && Number.isInteger(row.month) && row.month >= 1 && row.month <= 12 ? [row.month] : []))].sort((a, b) => a - b) : [];
   const rawStart = filters.get('start_year');
@@ -33,6 +38,10 @@ function ReturnedSeries({ rows, meta, title, allowMonths }: { rows: { year: numb
   const yearOnly = month === undefined ? [] : withinYears.filter((row) => row.month == null);
   const chartRows = visible.map((row) => ({ label: row.month == null ? String(row.year) : `${row.year}-${String(row.month).padStart(2, '0')}`, value: row.value }));
   const latest = visible.at(-1);
+  const selection: Omit<DAVQuery, 'operation'> = { dataset, ...(dataset === 'temperature' ? { region, month } : {}), start_year: start, end_year: end };
+  const distribution = useApi('/api/v1/dav', { operation: 'distribution', ...selection }, undefined, valid && (view === 'distribution' || explainOpen));
+  const distributionData = distribution.data?.data?.kind === 'distribution' ? distribution.data.data : undefined;
+  const selectionLabel = `${dataset === 'temperature' ? region : 'National drought'}; ${start}–${end}${month === undefined ? '' : `; month ${month}`}`;
   return <>
     <div className="filter-row temporal-view-filters">
       <div><label htmlFor="returned-start">View start year</label><select id="returned-start" value={rawStart ?? ''} onChange={(event) => setFilters({ start_year: event.target.value || undefined })}><option value="">First returned year</option>{rawStart !== null && !years.includes(Number(rawStart)) && <option value={rawStart}>Unsupported selection: {rawStart}</option>}{years.map((year) => <option key={year} value={year}>{year}</option>)}</select></div>
@@ -40,18 +49,52 @@ function ReturnedSeries({ rows, meta, title, allowMonths }: { rows: { year: numb
       {months.length > 0 && <div><label htmlFor="returned-month">Returned observation month</label><select id="returned-month" value={rawMonth ?? ''} onChange={(event) => setFilters({ month: event.target.value || undefined })}><option value="">All returned months</option>{rawMonth !== null && !months.includes(Number(rawMonth)) && <option value={rawMonth}>Unsupported selection: {rawMonth}</option>}{months.map((value) => <option key={value} value={value}>{value}</option>)}</select></div>}
     </div>
     {!valid ? <p role="alert">Choose returned year bounds with the start no later than the end, and a supplied month if applicable.</p> : <>
-      <p className="muted">Visible filtered period: {start}–{end}{month === undefined ? ', all returned observations' : `, month ${month}`}. Source rows are not aggregated.</p>
-      {latest && <div className="kpi-grid"><KpiCard label={`Latest returned observation (${latest.month == null ? latest.year : `${latest.year}-${String(latest.month).padStart(2, '0')}`})`} value={latest.value} unit={meta.unit} badge={`${visible.length} observations in view`} tone="ok" series={chartRows} /></div>}
-      {visible.length ? <TrendChart title={title} rows={chartRows} unit={meta.unit} /> : <p role="status">No observations in this view. This is not measured zero.</p>}
-      {yearOnly.length > 0 && <div className="table-scroll"><table><caption>Year-only records have no month and are not part of the selected month view</caption><thead><tr><th scope="col">Source year</th><th scope="col">Value · {meta.unit ?? 'Unit not declared'}</th></tr></thead><tbody>{yearOnly.map((row, index) => <tr key={`${row.year}-${index}`}><td>{row.year}</td><td>{row.value}</td></tr>)}</tbody></table></div>}
+      <div className="dav-workbench explorer-series-canvas" data-hazard={dataset === 'temperature' ? 'heat' : 'drought'}>
+        <div className="filter-row"><h3>{title}</h3><button className="button" type="button" onClick={() => setExplainOpen(true)}>Explain this analysis</button></div>
+        <AnalysisTabs label={`${title} view`} options={[{ id: 'trend', label: 'Trend' }, { id: 'distribution', label: 'Distribution' }]} value={view} onChange={(dav_view) => setFilters({ dav_view })}>
+          {view === 'trend' ? <div className="dav-body">{visible.length ? <TrendChart title={title} rows={chartRows} unit={meta.unit} /> : <p role="status">No observations in this view. This is not measured zero.</p>}</div> : <QueryState query={distribution} empty={distribution.data?.status === 'no_data'}>
+            {distributionData && <DistributionPanel data={distributionData} meta={distribution.data?.meta} title={title} unit={meta.unit} color={dataset === 'temperature' ? 'var(--heat)' : 'var(--drought)'} />}
+          </QueryState>}
+        </AnalysisTabs>
+      </div>
+      <details><summary>Selected source observations</summary><div className="table-scroll"><table><caption>{selectionLabel}; source rows, not aggregated</caption><thead><tr><th scope="col">Source year / month</th><th scope="col">Value · {meta.unit ?? 'Unit not declared'}</th></tr></thead><tbody>{visible.map((row, index) => <tr key={`${row.year}-${row.month ?? 'annual'}-${index}`}><th scope="row">{row.month == null ? row.year : `${row.year}-${String(row.month).padStart(2, '0')}`}</th><td>{row.value ?? 'Unavailable'}</td></tr>)}</tbody></table></div></details>
+      {yearOnly.length > 0 && <div className="table-scroll"><table><caption>Year-only records have no month and are not part of the selected month view</caption><thead><tr><th scope="col">Source year</th><th scope="col">Value · {meta.unit ?? 'Unit not declared'}</th></tr></thead><tbody>{yearOnly.map((row, index) => <tr key={`${row.year}-${index}`}><td>{row.year}</td><td>{row.value ?? 'Unavailable'}</td></tr>)}</tbody></table></div>}
     </>}
-    <Evidence meta={meta} />
+    {latest && <p className="muted">{visible.length} observations · latest {latest.value} {meta.unit ?? '(unit not declared)'}. Missing is not zero.</p>}
+    <AnalysisDrawer open={explainOpen} onClose={() => setExplainOpen(false)} title={`Explain ${title}`}>
+      <AnalysisExplanation selectionLabel={selectionLabel} meta={valid ? distribution.data?.meta : undefined}
+        interpretation={<>{valid && <QueryState query={distribution} empty={distribution.data?.status === 'no_data'}>{distributionData && <DistributionDetails data={distributionData} unit={meta.unit} title={title} color={dataset === 'temperature' ? 'var(--heat)' : 'var(--drought)'} />}</QueryState>}</>}
+        calculation={null}
+        auditSources={valid ? [{ id: dataset, label: dataset === 'temperature' ? `Temperature · ${region}` : 'National drought', query: { operation: 'audit', ...selection } }] : []} />
+    </AnalysisDrawer>
   </>;
 }
 
 export default function Explorer() {
+  const { filters } = useFilters();
+  const legacyRainfall = filters.get('hazard') === 'rainfall';
+  const query = filters.toString();
+  useEffect(() => {
+    if (!legacyRainfall) return;
+    const next = new URLSearchParams(query);
+    for (const key of ['offset', 'storm_id', 'region', 'month']) next.delete(key);
+    window.location.replace(`#/overview?${next.toString()}`);
+  }, [legacyRainfall, query]);
+  return legacyRainfall ? <p role="status">Opening rainfall in Overview…</p> : <HazardExplorer />;
+}
+
+function HazardExplorer() {
   const { filters, setFilters } = useFilters();
   const active = lenses.find((lens) => lens.id === filters.get('hazard')) ?? lenses[0];
+  const [explainOpen, setExplainOpen] = useState(false);
+  const [highlightDecade, setHighlightDecade] = useState<string | null | undefined>(undefined);
+  const rawView = filters.get('dav_view');
+  const viewOptions = active.id === 'floods' || active.id === 'landslides'
+    ? [{ id: 'counts', label: 'Counts' }, { id: 'records', label: 'Records' }]
+    : active.id === 'cyclones' ? [{ id: 'track', label: 'Track' }, { id: 'relationship', label: 'Relationship' }]
+      : [{ id: 'trend', label: 'Trend' }, { id: 'distribution', label: 'Distribution' }];
+  const view = viewOptions.some((option) => option.id === rawView) ? rawView! : viewOptions[0].id;
+  useEffect(() => { setExplainOpen(false); }, [active.id]);
   const metadata = useApi('/api/v1/metadata');
   const states = useApi('/api/v1/states');
   const catalog = metadata.data?.data;
@@ -59,53 +102,53 @@ export default function Explorer() {
   const years = [...(catalog?.capabilities.available_years?.[dataset] ?? [])].sort((a, b) => a - b);
   const requestedYear = Number(filters.get('year'));
   const year = years.includes(requestedYear) ? requestedYear : years.at(-1);
-  const rainfallYears = [...(catalog?.capabilities.available_years?.rainfall ?? [])].sort((a, b) => a - b);
-  const requestedStart = Number(filters.get('start_year'));
-  const requestedEnd = Number(filters.get('end_year'));
-  const startYear = rainfallYears.includes(requestedStart) ? requestedStart : rainfallYears[0];
-  const endYear = rainfallYears.includes(requestedEnd) ? requestedEnd : rainfallYears.at(-1);
-  const validPeriod = startYear !== undefined && endYear !== undefined && startYear <= endYear;
-  const dates = [...(catalog?.capabilities.rainfall_observation_dates ?? [])].filter((value) => Number(value.slice(0, 4)) === year).sort();
-  const requestedDate = filters.get('observation_date') ?? '';
-  const date = dates.includes(requestedDate) ? requestedDate : dates.at(-1) ?? '';
   const stateRows = states.data?.data ?? [];
-  const requestedState = filters.get('state_id') ?? '';
-  const selectedState = stateRows.some((state) => state.state_id === requestedState) ? requestedState : active.id === 'rainfall' ? stateRows[0]?.state_id ?? '' : '';
+  const requestedState = filters.get('state_id');
+  const stateSelection = requestedState ?? defaultStateId(stateRows);
+  const selectedState = stateSelection === 'all' ? '' : stateSelection;
   const stateName = stateRows.find((state) => state.state_id === selectedState)?.name;
   const mapVisible = active.id !== 'heat' && active.id !== 'drought';
   const eventLens = active.id === 'floods' || active.id === 'landslides';
+  const countsView = eventLens && view === 'counts';
+  const relationshipView = active.id === 'cyclones' && view === 'relationship';
+  const countYears = [...new Set([...(catalog?.capabilities.available_years?.floods ?? []), ...(catalog?.capabilities.available_years?.landslides ?? [])])].sort((a, b) => a - b);
+  const countStart = filters.has('start_year') ? Number(filters.get('start_year')) : countYears[0];
+  const countEnd = filters.has('end_year') ? Number(filters.get('end_year')) : countYears.at(-1);
+  const validCountPeriod = countStart !== undefined && countEnd !== undefined && Number.isInteger(countStart) && Number.isInteger(countEnd) && countStart >= (countYears[0] ?? Infinity) && countEnd <= (countYears.at(-1) ?? -Infinity) && countStart <= countEnd;
+  const counts = useApi('/api/v1/dav', { operation: 'counts', state_id: selectedState || undefined, start_year: countStart, end_year: countEnd }, undefined, countsView && validCountPeriod && (stateSelection === 'all' || !!selectedState));
+  const countsData = counts.data?.data?.kind === 'counts' ? counts.data.data : undefined;
   const parsedOffset = Number(filters.get('offset') ?? 0);
   const offset = Number.isSafeInteger(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
-  const identity = JSON.stringify({ hazard: active.id, year, date, selectedState, startYear, endYear, offset, stormId: filters.get('storm_id') ?? '' });
+  const identity = JSON.stringify({ hazard: active.id, year, selectedState, offset, stormId: filters.get('storm_id') ?? '' });
   const settledIdentity = useDebouncedValue(identity);
-  const settled = JSON.parse(settledIdentity) as { hazard: string; year?: number; date: string; selectedState: string; startYear?: number; endYear?: number; offset: number; stormId: string };
+  const settled = JSON.parse(settledIdentity) as { hazard: string; year?: number; selectedState: string; offset: number; stormId: string };
   const updating = identity !== settledIdentity;
   const scopeReady = active.id === settled.hazard;
   const boundaries = useApi('/api/v1/boundaries', undefined, undefined, mapVisible);
-  const rainfall = useApi('/api/v1/map/rainfall', { year: Number(settled.date.slice(0, 4)), observation_date: settled.date }, undefined, scopeReady && active.id === 'rainfall' && !!settled.date);
-  const evidenceBusy = updating || (active.id === 'rainfall' && !!date && rainfall.isPending);
-  const trend = useApi('/api/v1/trends/rainfall', { state_id: settled.selectedState, start_year: settled.startYear, end_year: settled.endYear }, undefined, scopeReady && active.id === 'rainfall' && !!settled.selectedState && settled.startYear !== undefined && settled.endYear !== undefined && settled.startYear <= settled.endYear);
-  const events = useApi(active.id === 'landslides' ? '/api/v1/events/landslides' : '/api/v1/events/floods', { state_id: settled.selectedState || undefined, year: settled.year, limit: 100, offset: settled.offset }, undefined, scopeReady && eventLens && settled.year !== undefined);
+  const events = useApi(active.id === 'landslides' ? '/api/v1/events/landslides' : '/api/v1/events/floods', { state_id: settled.selectedState || undefined, year: settled.year, limit: 100, offset: settled.offset }, undefined, scopeReady && eventLens && !countsView && settled.year !== undefined && (stateSelection === 'all' || !!settled.selectedState));
   const storms = useApi('/api/v1/cyclones', { year: settled.year, limit: 100, offset: settled.offset }, undefined, scopeReady && active.id === 'cyclones' && settled.year !== undefined);
   const stormRows = storms.data?.data.items ?? [];
-  const storm = stormRows.find((row) => row.storm_id === settled.stormId) ?? stormRows.find((row) => row.name.toLowerCase() === 'fani') ?? stormRows[0];
+  const storm = settled.stormId ? stormRows.find((row) => row.storm_id === settled.stormId) : stormRows.find((row) => row.name.toLowerCase() === 'fani') ?? stormRows[0];
+  const unavailableStorm = active.id === 'cyclones' && !!settled.stormId && !storms.isPending && !storms.error && !storm;
   const track = useApi('/api/v1/cyclones/{storm_id}/track', undefined, { storm_id: storm?.storm_id ?? '' }, scopeReady && active.id === 'cyclones' && !!storm);
   const trackRows = [...(track.data?.data ?? [])].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-  const region = filters.get('region')?.trim() ?? '';
+  const relationship = useApi('/api/v1/dav', { operation: 'relationship', dataset: 'tracks', storm_id: storm?.storm_id }, undefined, scopeReady && !updating && active.id === 'cyclones' && !!storm && (relationshipView || explainOpen));
+  const relationshipData = relationship.data?.data?.kind === 'relationship' ? relationship.data.data : undefined;
+  const region = filters.get('region')?.trim() ?? 'Karnataka';
   const temperature = useApi('/api/v1/trends/temperature', { region }, undefined, active.id === 'heat' && !!region);
   const drought = useApi('/api/v1/trends/drought', undefined, undefined, active.id === 'drought');
-  const observation = rainfall.data?.data.find((row) => row.state_id === selectedState && row.date === date);
-  const trendRows = [...(trend.data?.data ?? [])].sort((a, b) => (a.date ?? String(a.year)).localeCompare(b.date ?? String(b.year))).map((row) => ({ label: row.date ?? String(row.year), value: row.value }));
-  const decades = [...new Set(years.map((value) => Math.floor(value / 10) * 10))].sort((a, b) => a - b);
-  const activeDecade = year !== undefined ? `${Math.floor(year / 10) * 10}s` : null;
+  const ribbonYears = countsView ? countYears : years;
+  const decades = [...new Set(ribbonYears.map((value) => Math.floor(value / 10) * 10))].sort((a, b) => a - b);
+  const recordsDecade = year !== undefined ? `${Math.floor(year / 10) * 10}s` : null;
+  const activeDecade = countsView ? highlightDecade ?? null : recordsDecade;
   const decadeOptions = decades.map((decade) => ({
     id: `${decade}s`,
     label: `${decade}s`,
-    count: years.filter((value) => Math.floor(value / 10) * 10 === decade).length,
+    count: ribbonYears.filter((value) => Math.floor(value / 10) * 10 === decade).length,
   }));
-  const reportStartYear = active.id === 'rainfall' ? startYear : year;
-  const reportEndYear = active.id === 'rainfall' ? endYear : year;
-  const selectState = (stateId: string) => setFilters({ state_id: stateId || undefined, offset: undefined });
+  const reportStartYear = countsView ? countStart : year;
+  const reportEndYear = countsView ? countEnd : year;
+  const selectState = (stateId: string) => setFilters({ state_id: stateId || 'all', offset: undefined });
   const link = (path: string, patch: Record<string, string | undefined> = {}) => {
     const query = new URLSearchParams(filters);
     if (selectedState) query.set('state_id', selectedState);
@@ -118,60 +161,61 @@ export default function Explorer() {
     <p aria-live="polite">{page?.total ? page.items.length ? `${page.offset + 1}–${Math.min(page.offset + page.items.length, page.total)} of ${page.total}` : `No records on this page; ${page.total} matching records` : 'No matching records'}</p>
     <button className="button" type="button" disabled={!page || page.offset + page.limit >= page.total} onClick={() => setFilters({ offset: String(offset + 100), storm_id: undefined })}>Next 100</button>
   </nav> : null;
+  const auditStart = countsView ? countStart : year;
+  const auditEnd = countsView ? countEnd : year;
+  const eventAuditSources = (countsView ? ['floods', 'landslides'] as const : [active.id === 'landslides' ? 'landslides' : 'floods'] as const).map((source) => ({
+    id: source, label: `${source === 'floods' ? 'Flood' : 'Landslide'} prepared records`,
+    query: { operation: 'audit', dataset: source, state_id: selectedState || undefined, start_year: auditStart, end_year: auditEnd } satisfies DAVQuery,
+  }));
 
-  return <>
-    <header className="page-heading"><h1>Disaster explorer</h1><p className="muted">Keep geography, recorded periods, and source units in view.</p></header>
+  return <div className="explorer-page">
+    <header className="page-heading"><h1>Disaster explorer</h1></header>
     <nav className="lens-strip" aria-label="Hazard lenses">{lenses.map(({ id, label, Icon }) => {
       const key = id === 'heat' ? 'temperature' : id;
       const count = catalog?.datasets?.[key]?.observation_count;
-      return <a href={link('explorer', { hazard: id, offset: undefined, storm_id: undefined, start_year: undefined, end_year: undefined, month: undefined })} key={id} aria-current={active.id === id ? 'page' : undefined}><Icon size={17} aria-hidden="true" /><span>{label}</span>{count !== undefined && <span className="slicer-count" aria-hidden="true">{count.toLocaleString()}</span>}</a>;
+      const keepCountScope = countsView && (id === 'floods' || id === 'landslides');
+      return <a href={link('explorer', { hazard: id, offset: undefined, storm_id: undefined, ...(!keepCountScope ? { start_year: undefined, end_year: undefined } : {}), month: undefined })} key={id} aria-current={active.id === id ? 'page' : undefined}><Icon size={17} aria-hidden="true" /><span>{label}</span>{count !== undefined && <span className="slicer-count" aria-hidden="true">{count.toLocaleString()}</span>}</a>;
     })}</nav>
     <section className="explorer-scope" aria-labelledby="explorer-scope-title">
       <h2 id="explorer-scope-title">{active.label}</h2>
-      {catalog?.capabilities.omitted_datasets?.[dataset] && <p role="note"><strong>Backend coverage limitation:</strong> {catalog.capabilities.omitted_datasets[dataset]}</p>}
       <p className="muted">{active.scope}</p>
       {(metadata.isPending || metadata.error) && <QueryState query={metadata} />}
-      {mapVisible && (states.isPending || states.error) && <QueryState query={states} />}
+      {eventLens && (states.isPending || states.error) && <QueryState query={states} />}
       {mapVisible && decadeOptions.length > 0 && <div className="slicer-bar">
-        <SlicerRibbon label="Decade (years with records)" options={decadeOptions} value={activeDecade} onChange={(decadeId) => {
-          if (!decadeId) { setFilters({ year: undefined, observation_date: undefined, offset: undefined, storm_id: undefined }); return; }
+        <SlicerRibbon label={countsView ? 'Highlight decade (does not filter Counts)' : 'Decade (years with records)'} options={decadeOptions} value={activeDecade} onChange={(decadeId) => {
+          if (countsView) { setHighlightDecade(decadeId); return; }
+          if (!decadeId) { setFilters({ year: undefined, offset: undefined, storm_id: undefined }); return; }
           const matching = years.filter((value) => `${Math.floor(value / 10) * 10}s` === decadeId);
-          if (matching.length) setFilters({ year: String(matching.at(-1)), observation_date: undefined, offset: undefined, storm_id: undefined });
+          if (matching.length) setFilters({ year: String(matching.at(-1)), offset: undefined, storm_id: undefined });
         }} />
       </div>}
       <div className="filter-row explorer-toolbar">
-        {mapVisible && <div><label htmlFor="explorer-state">{active.id === 'cyclones' ? 'State for evidence / report (does not filter basin tracks)' : 'State / union territory'}</label><select id="explorer-state" value={selectedState} disabled={!stateRows.length} onChange={(event) => selectState(event.target.value)}>
-          {active.id !== 'rainfall' && <option value="">{active.id === 'cyclones' ? 'No state selected' : 'All catalog states / unassigned events'}</option>}{!stateRows.length && <option value="">No states available</option>}{stateRows.map((state) => <option key={state.state_id} value={state.state_id}>{state.name}</option>)}
+        {eventLens && <div><label htmlFor="explorer-state">State / union territory</label><select id="explorer-state" value={stateSelection} disabled={!stateRows.length} onChange={(event) => selectState(event.target.value)}>
+          <option value="all">All catalog states / unassigned events</option>{!stateRows.length && <option value="">No states available</option>}{requestedState !== null && requestedState !== 'all' && !stateRows.some((state) => state.state_id === requestedState) && <option value={requestedState}>Unknown state: {requestedState || '(empty)'}</option>}{stateRows.map((state) => <option key={state.state_id} value={state.state_id}>{state.name}</option>)}
         </select></div>}
-        {mapVisible && <div><label htmlFor="explorer-year">Available observation year</label><select id="explorer-year" value={year ?? ''} disabled={!years.length} onChange={(event) => setFilters({ year: event.target.value, observation_date: undefined, offset: undefined, storm_id: undefined })}>{!years.length && <option value="">No supported years</option>}{years.map((value) => <option key={value} value={value}>{value}</option>)}</select></div>}
-        {active.id === 'rainfall' && <div><label htmlFor="explorer-date">Recorded rainfall date</label><select id="explorer-date" value={date} disabled={!dates.length} onChange={(event) => setFilters({ observation_date: event.target.value })}>{!dates.length && <option value="">No supported dates</option>}{dates.map((value) => <option key={value} value={value}>{value}</option>)}</select></div>}
-        <button className="button" type="button" onClick={() => setFilters({ state_id: undefined, year: undefined, observation_date: undefined, start_year: undefined, end_year: undefined, month: undefined, storm_id: undefined, offset: undefined, region: undefined })}>Reset to available defaults</button>
+        {mapVisible && !countsView && <div><label htmlFor="explorer-year">Available observation year</label><select id="explorer-year" value={year ?? ''} disabled={!years.length} onChange={(event) => setFilters({ year: event.target.value, offset: undefined, storm_id: undefined })}>{!years.length && <option value="">No supported years</option>}{years.map((value) => <option key={value} value={value}>{value}</option>)}</select></div>}
+        {countsView && <><div><label htmlFor="counts-start">Catalog start year</label><input id="counts-start" type="number" min={countYears[0]} max={countYears.at(-1)} step="1" value={filters.get('start_year') ?? countStart ?? ''} onChange={(event) => setFilters({ start_year: event.target.value || undefined })} /></div><div><label htmlFor="counts-end">Catalog end year</label><input id="counts-end" type="number" min={countYears[0]} max={countYears.at(-1)} step="1" value={filters.get('end_year') ?? countEnd ?? ''} onChange={(event) => setFilters({ end_year: event.target.value || undefined })} /></div></>}
+        <button className="button" type="button" onClick={() => { setHighlightDecade(undefined); setExplainOpen(false); setFilters({ state_id: undefined, year: undefined, start_year: undefined, end_year: undefined, month: undefined, storm_id: undefined, offset: undefined, region: undefined, dav_view: undefined }); }}>Reset scope</button>
       </div>
     </section>
+    {mapVisible && <>
+    {(eventLens || active.id === 'cyclones') && <div className="filter-row"><button className="button" type="button" onClick={() => setExplainOpen(true)}>Explain this analysis</button></div>}
+    <AnalysisTabs label={`${active.label} analytical view`} options={viewOptions} value={view} onChange={(dav_view) => setFilters({ dav_view })}>
+    {countsView && <section className="dav-workbench" aria-label="Complete catalog counts" data-hazard={active.id}>
+      <h2>Flood and landslide counts</h2>
+      <p className="muted">{selectedState ? stateName ?? selectedState : 'All catalog states, including unassigned events'} · {countStart}–{countEnd} · documented records by decade.</p>
+      {!validCountPeriod ? <p role="alert">Choose supported catalog year bounds with the start no later than the end ({countYears[0]}–{countYears.at(-1)}).</p> : <QueryState query={counts} empty={counts.data?.status === 'no_data'}>{countsData && <CountPanel data={countsData} meta={counts.data?.meta} activeHazard={active.id === 'landslides' ? 'landslides' : 'floods'} activeDecade={activeDecade ? Number(activeDecade.slice(0, -1)) : undefined} />}</QueryState>}
+      <p className="muted">Zero: no recorded events within coverage. N/A: no coverage. Neither measures hazard risk.</p>
+    </section>}
 
-    {mapVisible && <div className="explorer-workbench">
-      <section className="map-stage" aria-label="Geographic evidence" aria-busy={evidenceBusy || (eventLens && events.isPending) || (active.id === 'cyclones' && (storms.isPending || track.isPending))}>
+    {mapVisible && !countsView && <div className={relationshipView ? 'dav-workbench' : 'explorer-workbench'}>
+      {!relationshipView && <section className="map-stage" aria-label="Recorded locations" aria-busy={updating || (eventLens && events.isPending) || (active.id === 'cyclones' && (storms.isPending || track.isPending))}>
         <QueryState query={boundaries} empty={boundaries.data?.status === 'no_data'}>
-          <IndiaMap boundaries={boundaries.data?.data} selectedState={selectedState || undefined} onSelect={selectState} showStateSelector={false} basemapHint={active.id === 'landslides' ? 'terrain' : undefined} rainfall={!updating && active.id === 'rainfall' ? rainfall.data?.data : undefined} points={!updating && eventLens ? events.data?.data.items : undefined} track={!updating && active.id === 'cyclones' ? trackRows : undefined} unit={!updating && active.id === 'rainfall' ? rainfall.data?.meta.unit : undefined} />
-          <Evidence meta={boundaries.data?.meta} />
+          <IndiaMap boundaries={boundaries.data?.data} selectedState={eventLens ? selectedState || undefined : undefined} onSelect={eventLens ? selectState : undefined} showStateSelector={false} basemapHint={active.id === 'landslides' ? 'terrain' : undefined} points={!updating && eventLens ? events.data?.data.items : undefined} track={!updating && active.id === 'cyclones' ? trackRows : undefined} />
         </QueryState>
-        {evidenceBusy ? <p role="status">Updating filters…</p> : active.id === 'rainfall' ? <Evidence meta={rainfall.data?.meta} /> : <p className="muted">{eventLens ? 'Only current-page events with valid coordinates are mapped. Records without coordinates remain in the list.' : 'Basin tracks do not establish state exposure or landfall.'}</p>}
-      </section>
-      {active.id === 'rainfall' ? <aside className="state-rail" aria-label="Selected state evidence" aria-busy={evidenceBusy}>
-        <h2>{stateName ?? 'Selected state'}</h2><p className="muted">{selectedState}</p>
-        <div className="filter-row"><div><label htmlFor="rainfall-start">Trend / report start year</label><select id="rainfall-start" value={startYear ?? ''} disabled={!rainfallYears.length} onChange={(event) => setFilters({ start_year: event.target.value })}>{!rainfallYears.length && <option value="">No supported years</option>}{rainfallYears.map((value) => <option key={value} value={value}>{value}</option>)}</select></div><div><label htmlFor="rainfall-end">Trend / report end year</label><select id="rainfall-end" value={endYear ?? ''} disabled={!rainfallYears.length} onChange={(event) => setFilters({ end_year: event.target.value })}>{!rainfallYears.length && <option value="">No supported years</option>}{rainfallYears.map((value) => <option key={value} value={value}>{value}</option>)}</select></div></div>
-        {evidenceBusy ? <p role="status">Updating filters…</p> : <>
-          {date ? <QueryState query={rainfall}>
-            <div className="kpi-grid">
-              <KpiCard label="Recorded rainfall" outputLabel="Recorded rainfall value" value={observation ? observation.value : null} unit={rainfall.data?.meta.unit} missingText="No observation for this date" info="Single-date source value for the selected state; not an annual total or anomaly." badge={<>Recorded rainfall on <time dateTime={date}>{date}</time></>} tone={observation ? 'ok' : 'neutral'} series={trendRows} />
-            </div>
-          </QueryState> : <p>No backend-supported rainfall dates are available.</p>}
-          {!validPeriod ? <p role="alert">Choose a supported start year no later than the end year.</p> : selectedState && <QueryState query={trend} empty={trend.data?.status === 'no_data' || trend.data?.data.length === 0}><TrendChart title="Observed rainfall series (not annual totals)" unit={trend.data?.meta.unit} meta={trend.data?.meta} rows={trendRows} /></QueryState>}
-        </>}
-        <p className="muted">Date labels retain source resolution. No monthly or annual aggregation is calculated.</p>
-        {selectedState && validPeriod && <ReportDownload stateId={selectedState} startYear={startYear!} endYear={endYear!} disabled={updating || trend.isPending || !trend.data?.data.length} />}
-        <a href={link('insights', { start_year: startYear?.toString(), end_year: endYear?.toString() })}>NIElytics insights for this state</a>
-      </aside> : <section className="record-rail" aria-label="Recorded observations" aria-busy={updating}>
+        {updating ? <p role="status">Updating filters…</p> : eventLens && <p className="muted">Current-page events with recorded coordinates.</p>}
+      </section>}
+      <section className="record-rail" aria-label="Recorded observations" aria-busy={updating}>
         {updating ? <p role="status">Updating filters…</p> : eventLens ? <>
           <h2>{active.label} · Recorded events</h2>
           {year !== undefined ? <QueryState query={events} empty={events.data?.status === 'no_data' || events.data?.data.items.length === 0}>
@@ -181,7 +225,7 @@ export default function Explorer() {
             <ol className="event-records" start={offset + 1}>{events.data?.data.items.map((event) => {
               const located = event.latitude != null && event.longitude != null && Number.isFinite(event.latitude) && Number.isFinite(event.longitude) && Math.abs(event.latitude) <= 90 && Math.abs(event.longitude) <= 180;
               return <li key={event.event_id}><h3>{event.event_id}</h3><p>{stateRows.find((state) => state.state_id === event.state_id)?.name ?? event.state_id ?? 'Not assigned'}</p><p>{event.timestamp ? <time dateTime={event.timestamp}>{event.timestamp}</time> : event.year ?? 'Source date not recorded'}</p><p>{located ? `Latitude: ${event.latitude}; longitude: ${event.longitude}` : 'Location not available'}</p><details><summary>Source attributes</summary>{Object.keys(event.attributes ?? {}).length ? <dl>{Object.entries(event.attributes ?? {}).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{typeof value === 'string' ? value : JSON.stringify(value)}</dd></div>)}</dl> : <p>No source attributes supplied.</p>}</details></li>;
-            })}</ol><Evidence meta={events.data?.meta} />
+            })}</ol>
           </QueryState> : <p>The backend has not declared available years for this event family.</p>}
         </> : <>
           <h2>Cyclones · Observed tracks</h2>
@@ -189,32 +233,44 @@ export default function Explorer() {
             <div className="kpi-grid">
               <KpiCard label="Catalog storms" value={storms.data?.data.total ?? null} unit={`season ${year}`} badge={storm ? `${storm.name} · ${trackRows.length} track points` : undefined} />
             </div>
-            <label htmlFor="explorer-storm">Storm from the returned year / page</label><select id="explorer-storm" value={storm?.storm_id ?? ''} onChange={(event) => setFilters({ storm_id: event.target.value })}>{stormRows.map((row) => <option key={row.storm_id} value={row.storm_id}>{row.name} · {row.year} · {row.storm_id}</option>)}</select><Evidence meta={storms.data?.meta} /></QueryState> : <p>No supported cyclone years are available.</p>}
+            <label htmlFor="explorer-storm">Storm from the returned year / page</label><select id="explorer-storm" value={storm?.storm_id ?? settled.stormId} onChange={(event) => setFilters({ storm_id: event.target.value })}>{unavailableStorm && <option value={settled.stormId}>Not in returned year / page: {settled.stormId}</option>}{stormRows.map((row) => <option key={row.storm_id} value={row.storm_id}>{row.name} · {row.year}</option>)}</select></QueryState> : <p>No supported cyclone years are available.</p>}
+          {unavailableStorm && <p role="alert">The requested storm {settled.stormId} is not in this returned year / page. Choose a catalog storm or change the year / page; no other storm is substituted.</p>}
+          {relationshipView && (storm ? <section data-hazard="cyclones">
+            <h3>Wind / pressure · {storm.name}</h3>
+            <p className="muted">Same-storm timestamp pairs; temporally dependent observations, not causation.</p>
+            <QueryState query={relationship} empty={relationship.data?.status === 'no_data'}>{relationshipData && <RelationshipPanel data={relationshipData} meta={relationship.data?.meta} title={`${storm.name} · ${storm.storm_id}`} color="var(--cyclone)" />}</QueryState>
+          </section> : <p role="status">Select a storm with recorded observations.</p>)}
           {!!storm && <QueryState query={track} empty={track.data?.status === 'no_data' || trackRows.length === 0}>
-            <h3>{storm.name} · {storm.year} · {storm.storm_id}</h3><a className="button primary" href={link('time-machine', { hazard: 'cyclones', year: String(storm.year), storm_id: storm.storm_id, offset: undefined })}>Replay these recorded observations</a>
-            <p>{trackRows.length} returned observations; no interpolation.</p>
-            <details><summary>Recorded positions and source measurements</summary><div className="table-scroll"><table><thead><tr><th scope="col">Source timestamp</th><th scope="col">Latitude</th><th scope="col">Longitude</th><th scope="col">Wind</th><th scope="col">Pressure</th></tr></thead><tbody>{trackRows.map((row, index) => <tr key={`${row.timestamp}-${index}`}><th scope="row"><time dateTime={row.timestamp}>{row.timestamp}</time></th><td>{row.latitude}</td><td>{row.longitude}</td><td>{row.wind == null ? 'Not available' : `${row.wind} ${row.wind_unit ?? '(source unit unspecified)'}`}</td><td>{row.pressure == null ? 'Not available' : `${row.pressure} ${row.pressure_unit ?? '(source unit unspecified)'}`}</td></tr>)}</tbody></table></div></details><Evidence meta={track.data?.meta} />
+            <h3>{storm.name} · {storm.year}</h3><a className="button primary" href={link('time-machine', { hazard: 'cyclones', year: String(storm.year), storm_id: storm.storm_id, offset: undefined })}>Replay observations</a>
+            <details><summary>Recorded positions and measurements</summary><div className="table-scroll"><table><thead><tr><th scope="col">Recorded timestamp</th><th scope="col">Latitude</th><th scope="col">Longitude</th><th scope="col">Wind</th><th scope="col">Pressure</th></tr></thead><tbody>{trackRows.map((row, index) => <tr key={`${row.timestamp}-${index}`}><th scope="row"><time dateTime={row.timestamp}>{row.timestamp}</time></th><td>{row.latitude}</td><td>{row.longitude}</td><td>{row.wind == null ? 'Not available' : `${row.wind} ${row.wind_unit ?? '(unit unspecified)'}`}</td><td>{row.pressure == null ? 'Not available' : `${row.pressure} ${row.pressure_unit ?? '(unit unspecified)'}`}</td></tr>)}</tbody></table></div></details>
           </QueryState>}
         </>}
         {pagination}
-      </section>}
+      </section>
     </div>}
+    </AnalysisTabs>
+    </>}
+    {(eventLens || active.id === 'cyclones') && <AnalysisDrawer open={explainOpen} onClose={() => setExplainOpen(false)} title={eventLens ? 'Explain documented catalog records' : 'Explain the selected storm'}>
+      <AnalysisExplanation
+        selectionLabel={eventLens ? `${selectedState ? `${stateName ?? selectedState} (${selectedState})` : 'All catalog states, including unassigned events'}; ${auditStart}–${auditEnd}; ${countsView ? 'both hazard catalogs, grouped by decade' : active.label}` : `${storm?.name ?? 'No selected storm'}; ${storm?.storm_id ?? ''}; complete selected-storm source track`}
+        meta={eventLens ? (countsView ? counts.data?.meta : !updating ? events.data?.meta : undefined) : !updating ? relationship.data?.meta ?? track.data?.meta : undefined}
+        interpretation={eventLens ? <p>Documented counts, not hazard risk. Zero within coverage differs from N/A for absent coverage.</p> : <p>Wind and pressure use same-storm, same-timestamp pairs. Missing pairs are excluded; observations are temporally dependent.</p>}
+        calculation={null}
+        auditSources={eventLens ? (countsView ? validCountPeriod : !updating && year !== undefined) ? eventAuditSources : [] : !updating && storm ? [{ id: storm.storm_id, label: `${storm.name} · ${storm.storm_id} source track`, query: { operation: 'audit', dataset: 'tracks', storm_id: storm.storm_id } }] : []} />
+    </AnalysisDrawer>}
 
-    {active.id === 'heat' && <section className="regional-workspace"><h2>Regional temperature</h2><p className="muted">Select a source region or enter an identifier; annual summer maximum temperature (°C) from IMD / MoSPI EnviStats.</p>
+    {active.id === 'heat' && <section className="regional-workspace"><h2>Regional temperature</h2>
       <div className="slicer-bar">
         <SlicerRibbon label="Quick region" options={['India', 'Rajasthan', 'Andhra Pradesh', 'Karnataka', 'Maharashtra', 'Uttar Pradesh'].map((id) => ({ id, label: id }))} value={region || null} onChange={(next) => setFilters({ region: next ?? undefined, start_year: undefined, end_year: undefined, month: undefined })} />
       </div>
       <form className="filter-row" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); setFilters({ region: String(data.get('region') ?? '').trim() || undefined, start_year: undefined, end_year: undefined, month: undefined }); }}><div><label htmlFor="temperature-region">Source region identifier</label><input id="temperature-region" name="region" key={region} defaultValue={region} maxLength={100} required /></div><button className="button primary" type="submit">Load regional temperature</button></form>
-      {region ? <QueryState query={temperature} empty={temperature.data?.status === 'no_data' || temperature.data?.data.length === 0}>{temperature.data?.status === 'ok' && !!temperature.data.data.length && <ReturnedSeries key={region} rows={temperature.data.data} meta={temperature.data.meta} title={`Regional temperature · ${region}`} allowMonths />}</QueryState> : <p>No temperature request is made until a source region is supplied.</p>}
+      {region ? <QueryState query={temperature} empty={temperature.data?.status === 'no_data' || temperature.data?.data.length === 0}>{temperature.data?.status === 'ok' && !!temperature.data.data.length && <ReturnedSeries key={region} dataset="temperature" region={region} rows={temperature.data.data} meta={temperature.data.meta} title={`Regional temperature · ${region}`} allowMonths />}</QueryState> : <p>No temperature request is made until a source region is supplied.</p>}
     </section>}
-    {active.id === 'drought' && <section className="regional-workspace"><h2>National drought indicator</h2><QueryState query={drought} empty={drought.data?.status === 'no_data' || drought.data?.data.length === 0}>{drought.data?.status === 'ok' && !!drought.data.data.length && <ReturnedSeries rows={drought.data.data} meta={drought.data.meta} title="National drought observations" allowMonths={false} />}</QueryState><p className="muted">No state-level drought estimates, choropleths, or temperature/drought state comparisons are supported.</p></section>}
+    {active.id === 'drought' && <section className="regional-workspace"><h2>National drought indicator</h2><QueryState query={drought} empty={drought.data?.status === 'no_data' || drought.data?.data.length === 0}>{drought.data?.status === 'ok' && !!drought.data.data.length && <ReturnedSeries dataset="drought" rows={drought.data.data} meta={drought.data.meta} title="National drought observations" allowMonths={false} />}</QueryState></section>}
 
-    <section className="evidence-followup"><h2>Follow the evidence{mapVisible && stateName ? ` · ${stateName}` : ''}</h2>
-      {mapVisible ? <>
-        {active.id !== 'rainfall' && <a className="button" href={link('insights', { start_year: reportStartYear?.toString(), end_year: reportEndYear?.toString() })}>NIElytics insights{stateName ? ' for this state' : ''}</a>}
-        {active.id !== 'rainfall' && (selectedState && reportStartYear !== undefined && reportEndYear !== undefined ? <ReportDownload stateId={selectedState} startYear={reportStartYear} endYear={reportEndYear} disabled={updating} /> : <p className="muted">Select a confirmed state and supported historical period for a backend report. A cyclone year does not establish state exposure or landfall.</p>)}
-      </> : <p className="muted">The current insight and report contracts require a state. They do not supply regional temperature or national drought interpretations.</p>}
-      <a href={link('sources')}>Sources, methods, and limitations</a><p className="muted">Unavailable observations are not measured zero. Unequal reporting coverage is not a difference in hazard intensity. Historical analysis only, not forecasts or official alerts.</p>
-    </section>
-  </>;
+    {eventLens && <div className="route-links">
+      <a className="button" href={link('insights', { start_year: reportStartYear?.toString(), end_year: reportEndYear?.toString() })}>Insights{stateName ? ` · ${stateName}` : ''}</a>
+      {selectedState && reportStartYear !== undefined && reportEndYear !== undefined && <ReportDownload stateId={selectedState} startYear={reportStartYear} endYear={reportEndYear} disabled={updating} />}
+    </div>}
+  </div>;
 }

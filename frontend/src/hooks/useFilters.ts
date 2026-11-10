@@ -6,3 +6,6 @@ export function useFilters(){
  function setFilters(patch:Record<string,string|undefined>){const next=new URLSearchParams(window.location.hash.split('?')[1]??'');for(const [key,value]of Object.entries(patch)){if(value===undefined||value==='')next.delete(key);else next.set(key,value);}const route=window.location.hash.split('?')[0]||'#/overview';window.location.hash=route+(next.size?'?'+next.toString():'');}
  return {filters,setFilters};
 }
+export function defaultStateId(states: readonly { state_id: string }[]) {
+ return states.find(state => state.state_id === '29')?.state_id ?? (states.length ? states[0].state_id : '29');
+}

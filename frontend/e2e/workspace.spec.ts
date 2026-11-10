@@ -71,7 +71,6 @@ test('official map fits the first fold and selects actual state rainfall evidenc
   const date = dates[dates.length - 1];
   const rainfall = await api(request, '/api/v1/map/rainfall', { year: Number(date.slice(0, 4)), observation_date: date });
   await page.goto(`/#/overview?observation_date=${date}`);
-  await expect(page.getByText('Historical API connected')).toBeVisible();
   await expectOfficialMap(page);
   const canvas = page.locator('canvas.maplibregl-canvas');
   const box = await canvas.boundingBox();
@@ -258,7 +257,7 @@ test('returned cyclone replay keeps the map and playback in one desktop viewport
   await expectNoOverflow(page);
 });
 
-test('real insight methods link to their source article and download a backend PDF', async ({ page, request }, testInfo) => {
+test('findings export a backend PDF and source details stay in the Sources tab', async ({ page, request }, testInfo) => {
   const { catalog, state } = await scope(request);
   const { start, end } = period(catalog);
   const insights = await api(request, '/api/v1/insights', { state_id: state.state_id, start_year: start, end_year: end });
@@ -266,12 +265,10 @@ test('real insight methods link to their source article and download a backend P
   const insight = insights.data[0];
   const sources = (await api(request, '/api/v1/sources')).data;
   const source = sources.find(record => insight.source_ids.includes(record.id));
-  expect(source, 'The actual insight must retain a catalog source deep link').toBeDefined();
-  await page.goto(`/#/insights?state_id=${state.state_id}&start_year=${start}&end_year=${end}`);
+  expect(source, 'The actual insight must retain a catalog source reference').toBeDefined();
+  await page.goto(`/#/insights?state_id=${state.state_id}&start_year=${start}&end_year=${end}&dav_view=findings`);
   const finding = page.getByRole('article').filter({ has: page.getByRole('heading', { name: insight.title, exact: true }) });
-  await finding.getByText('How was this calculated?', { exact: true }).click();
-  if (insight.method) await expect(finding.getByText(insight.method, { exact: true })).toBeVisible();
-  for (const limitation of insight.limitations) await expect(finding.getByText(limitation, { exact: true })).toBeVisible();
+  await expect(finding).toBeVisible();
   const reportResponse = page.waitForResponse(response => new URL(response.url()).pathname === `/api/v1/reports/state/${state.state_id}`);
   const downloadEvent = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download Climate Report', exact: true }).click();
@@ -287,8 +284,9 @@ test('real insight methods link to their source article and download a backend P
   expect(path).not.toBeNull();
   expect((await readFile(path!)).subarray(0, 5).toString()).toBe('%PDF-');
   await page.screenshot({ path: `test-results/insight-${testInfo.project.name}.png`, fullPage: true });
-  await finding.locator(`a[href="#/sources?source_id=${encodeURIComponent(source!.id)}"]`).click();
-  await expect.poll(() => new URLSearchParams(page.url().split('?')[1]).get('source_id')).toBe(source!.id);
+  const menu = page.getByRole('button', { name: 'Open navigation', exact: true });
+  if (await menu.isVisible()) await menu.click();
+  await page.getByRole('link', { name: 'Sources & Methodology', exact: true }).click();
   const article = page.locator(`[id="source-${source!.id}"]`);
   await expect(article.getByRole('heading', { name: source!.name, exact: true })).toBeVisible();
   await expect(article.getByText(source!.provider, { exact: true })).toBeVisible();
@@ -317,6 +315,7 @@ test('multi-hazard paging preserves original observations and lazy map activatio
   await page.goto(`/#/multi-hazard?state_id=${chosenState.state_id}&start_year=${start}&end_year=${end}`);
   await page.getByRole('button', { name: new RegExp(relationship!.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).click();
   await expect(page.locator('[data-map-ready]')).toHaveCount(0);
+  await page.locator('summary').filter({ hasText: /^Observation records \(/ }).click();
   const table = page.getByRole('table', { name: 'Source records supplied with this relationship' });
   const assertRows = async (offset: number) => {
     const expected = observations.slice(offset, offset + 50);
@@ -336,9 +335,7 @@ test('multi-hazard paging preserves original observations and lazy map activatio
   await expect(page.getByRole('status').filter({ hasText: /^Records 51–/ })).toContainText(`of ${observations.length.toLocaleString()}`);
   await page.getByRole('button', { name: 'Previous observations', exact: true }).click();
   await assertRows(0);
-  await expect(page.getByText('Co-occurrence is not causation or simultaneity.', { exact: true })).toBeVisible();
-  if (observations.some(record => !record.timestamp && record.year != null)) await expect(page.getByText('Year-only records have no within-year ordering.', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Show observed-record map', exact: true }).click();
+  await page.getByRole('button', { name: 'Show observation map', exact: true }).click();
   await expectOfficialMap(page);
   await expect(page.locator('#multi-state')).toHaveCount(1);
   await expect(page.getByLabel('Map state selection')).toHaveCount(0);
@@ -361,17 +358,16 @@ test('hazard lenses keep source scope and retain unmapped event rows across serv
   }
   expect(selected, 'A real event page must contain unmapped records and a following server page').toBeDefined();
   const { hazard, year, records } = selected!;
-  await page.goto(`/#/overview?state_id=${state.state_id}&year=${year}`);
   const scopedRequest = page.waitForRequest(request => {
     const url = new URL(request.url());
     return url.pathname === `/api/v1/events/${hazard}` && url.searchParams.get('state_id') === state.state_id && url.searchParams.get('year') === String(year);
   });
-  await page.getByRole('navigation', { name: 'Hazard lenses', exact: true }).getByRole('link', { name: new RegExp(`^${hazard === 'floods' ? 'Floods' : 'Landslides'}`) }).click();
+  await page.goto(`/#/explorer?hazard=${hazard}&state_id=${state.state_id}&year=${year}&dav_view=records`);
   const initialQuery = new URL((await scopedRequest).url()).searchParams;
   expect(initialQuery.get('limit')).toBe('100');
   expect(initialQuery.get('offset')).toBe('0');
   await expect(page.getByLabel('State / union territory', { exact: true })).toHaveValue(state.state_id);
-  await page.getByLabel('State / union territory', { exact: true }).selectOption('');
+  await page.getByLabel('State / union territory', { exact: true }).selectOption('all');
   const rail = page.getByRole('region', { name: 'Recorded observations', exact: true });
   await expect(rail.locator('.event-records > li')).toHaveCount(records.data.items.length);
   const missing = records.data.items.find(event => event.latitude == null || event.longitude == null)!;
@@ -411,7 +407,6 @@ test('unavailable comparison and hazards retain the real backend explanation', a
     const alert = page.getByRole('alert');
     await expect(alert).toBeVisible();
     await expect(page.getByRole('button', { name: 'Retry request', exact: true })).toBeVisible();
-    await expect(alert.getByRole('link', { name: 'Review sources and coverage' })).toBeVisible();
     await expect(alert).not.toContainText('Check the backend connection');
     await expect(page.getByRole('button', { name: 'Download Climate Report', exact: true })).toHaveCount(0);
   }
